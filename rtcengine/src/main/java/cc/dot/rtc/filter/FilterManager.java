@@ -67,7 +67,7 @@ public class FilterManager {
         rgbaBuffer.asIntBuffer().put(rgbaIntBuffer.array());
 
         //todo yuv convert
-        
+
 
         return nv21Buffer.array();
     }
