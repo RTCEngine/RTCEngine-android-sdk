@@ -1,7 +1,6 @@
 package cc.dot.rtc;
 
 import android.content.Context;
-import android.opengl.GLSurfaceView;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.Looper;
@@ -9,14 +8,18 @@ import android.os.Message;
 import android.text.TextUtils;
 import android.util.Log;
 
-import org.json.JSONException;
 import org.json.JSONObject;
+import org.webrtc.DataChannel;
 import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.EglBase;
-import org.webrtc.Logging;
+import org.webrtc.IceCandidate;
+import org.webrtc.MediaStream;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
+import org.webrtc.RtpReceiver;
+import org.webrtc.SdpObserver;
+import org.webrtc.SessionDescription;
 import org.webrtc.SoftwareVideoDecoderFactory;
 import org.webrtc.SoftwareVideoEncoderFactory;
 import org.webrtc.VideoDecoderFactory;
@@ -51,7 +54,9 @@ import okhttp3.Response;
  * Created by xiang on 05/09/2018.
  */
 
-public class RTCEngine {
+public class RTCEngine implements SdpObserver, PeerConnection.Observer{
+
+
 
 
     public enum  RTCEngineStatus {
@@ -153,7 +158,7 @@ public class RTCEngine {
 
     private AuthToken authToken;
 
-    private PeerConnectionFactory mFactory;
+    protected PeerConnectionFactory factory;
 
     private boolean videoCodecHwAcceleration = true;
 
@@ -315,7 +320,7 @@ public class RTCEngine {
     private void createPeerConnectionFactory() {
 
 
-        if (mFactory != null) {
+        if (factory != null) {
             return;
         }
 
@@ -332,7 +337,7 @@ public class RTCEngine {
             decoderFactory = new SoftwareVideoDecoderFactory();
         }
 
-        mFactory = PeerConnectionFactory.builder()
+        factory = PeerConnectionFactory.builder()
                 .setOptions(new PeerConnectionFactory.Options())
                 .setAudioDeviceModule(adm)
                 .setVideoEncoderFactory(encoderFactory)
@@ -482,6 +487,94 @@ public class RTCEngine {
         }
         // other fieldTrails
         return fieldTrials;
+    }
+
+
+    protected void addTask(Runnable task) {
+        executor.execute(task);
+    }
+
+
+    // SdpObserver
+    @Override
+    public void onCreateSuccess(SessionDescription sessionDescription) {
+
+    }
+
+    @Override
+    public void onSetSuccess() {
+
+    }
+
+    @Override
+    public void onCreateFailure(String s) {
+
+    }
+
+    @Override
+    public void onSetFailure(String s) {
+
+    }
+
+
+
+    // PeerConnection.Observer
+
+
+
+    @Override
+    public void onSignalingChange(PeerConnection.SignalingState signalingState) {
+
+    }
+
+    @Override
+    public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
+
+    }
+
+    @Override
+    public void onIceConnectionReceivingChange(boolean b) {
+
+    }
+
+    @Override
+    public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
+
+    }
+
+    @Override
+    public void onIceCandidate(IceCandidate iceCandidate) {
+
+    }
+
+    @Override
+    public void onIceCandidatesRemoved(IceCandidate[] iceCandidates) {
+
+    }
+
+    @Override
+    public void onAddStream(MediaStream mediaStream) {
+
+    }
+
+    @Override
+    public void onRemoveStream(MediaStream mediaStream) {
+
+    }
+
+    @Override
+    public void onDataChannel(DataChannel dataChannel) {
+
+    }
+
+    @Override
+    public void onRenegotiationNeeded() {
+
+    }
+
+    @Override
+    public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
+
     }
 
 
