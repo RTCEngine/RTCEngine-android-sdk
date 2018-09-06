@@ -24,6 +24,7 @@ import org.webrtc.VideoEncoderFactory;
 import org.webrtc.audio.AudioDeviceModule;
 import org.webrtc.audio.JavaAudioDeviceModule;
 
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -33,9 +34,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import cc.dot.rtc.exception.BuilderException;
+import cc.dot.rtc.utils.AuthToken;
 import dot.cc.rtcengine.BuildConfig;
 import io.socket.client.IO;
 import io.socket.client.Socket;
+
+
+import io.socket.emitter.Emitter;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -146,6 +151,8 @@ public class RTCEngine {
 
     private Socket mSocket;
 
+    private AuthToken authToken;
+
     private PeerConnectionFactory mFactory;
 
     private boolean videoCodecHwAcceleration = true;
@@ -205,6 +212,10 @@ public class RTCEngine {
 
     public void addStream(final RTCStream stream) {
 
+        if (mStatus != RTCEngineStatus.Connected) {
+            return;
+        }
+
 
     }
 
@@ -212,6 +223,36 @@ public class RTCEngine {
     public void removeStream(final RTCStream stream) {
 
 
+    }
+
+
+    public boolean joinRoom(final String token) {
+
+        if (TextUtils.isEmpty(token)){
+
+            return false;
+        }
+
+        if (mStatus != RTCEngineStatus.DisConnected) {
+            return false;
+        }
+
+        authToken = AuthToken.parseToken(token);
+
+        if (authToken == null){
+
+            // todo on error code
+            return false;
+        }
+
+        iceServers = authToken.getIceServers();
+
+        executor.execute(() -> {
+
+
+        });
+
+        return true;
     }
 
 
@@ -255,7 +296,7 @@ public class RTCEngine {
 
             @Override
             protected void onPostExecute(String s) {
-                
+
                 if (tokenCallback == null) {
                     return;
                 }
@@ -302,6 +343,136 @@ public class RTCEngine {
 
     }
 
+    private void setupSignlingClient(){
+
+
+        String socketUrl = authToken.getWsUrl();
+        IO.Options options = new IO.Options();
+        options.reconnection = true;
+        options.reconnectionAttempts = 5;
+        options.reconnectionDelay = 1000;
+        options.reconnectionDelayMax = 5000;
+
+        try {
+            mSocket = IO.socket(socketUrl, options);
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+
+            // todo  error callback
+
+            return;
+        }
+
+
+        mSocket.on(Socket.EVENT_CONNECT, new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.on(Socket.EVENT_DISCONNECT, new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.on(Socket.EVENT_ERROR, new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+
+        mSocket.on(Socket.EVENT_RECONNECT, new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.on("joined", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.on("offer", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.on("answer", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.on("peerRemoved", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+
+        mSocket.on("peerConnected", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.on("streamAdded", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+
+        mSocket.on("configure", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+
+        mSocket.on("message", new Emitter.Listener() {
+            @Override
+            public void call(Object... args) {
+
+            }
+        });
+
+        mSocket.connect();
+
+    }
+
+
+    private void join() {
+
+
+    }
+
+
+    private void handleJoined(JSONObject data) {
+
+
+    }
+
+
+    private void handleOffer(JSONObject data) {
+
+
+    }
 
     private String getFieldTrials() {
         String fieldTrials = "";
