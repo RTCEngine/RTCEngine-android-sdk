@@ -8,12 +8,15 @@ import android.os.Message;
 import android.text.TextUtils;
 import android.util.Log;
 
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.webrtc.DataChannel;
 import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
+import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
@@ -38,6 +41,7 @@ import java.util.concurrent.Executors;
 
 import cc.dot.rtc.exception.BuilderException;
 import cc.dot.rtc.utils.AuthToken;
+import cc.dot.rtc.utils.MediaConstraintUtil;
 import dot.cc.rtcengine.BuildConfig;
 import io.socket.client.IO;
 import io.socket.client.Socket;
@@ -54,7 +58,7 @@ import okhttp3.Response;
  * Created by xiang on 05/09/2018.
  */
 
-public class RTCEngine implements SdpObserver, PeerConnection.Observer{
+public class RTCEngine implements PeerConnection.Observer, SdpObserver{
 
 
 
@@ -176,6 +180,15 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
     private boolean closed;
 
 
+    private enum SDPAction {
+        Join,
+        AddStream,
+        RemoveStream
+    }
+
+    private SDPAction sdpAction;
+
+
     // todo  move this to a single place
     private static final String VIDEO_FLEXFEC_FIELDTRIAL =
             "WebRTC-FlexFEC-03-Advertised/Enabled/WebRTC-FlexFEC-03/Enabled/";
@@ -253,8 +266,7 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
         iceServers = authToken.getIceServers();
 
         executor.execute(() -> {
-
-
+            this.setupSignlingClient();
         });
 
         return true;
@@ -350,7 +362,6 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
 
     private void setupSignlingClient(){
 
-
         String socketUrl = authToken.getWsUrl();
         IO.Options options = new IO.Options();
         options.reconnection = true;
@@ -362,9 +373,7 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
             mSocket = IO.socket(socketUrl, options);
         } catch (URISyntaxException e) {
             e.printStackTrace();
-
             // todo  error callback
-
             return;
         }
 
@@ -372,7 +381,7 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
         mSocket.on(Socket.EVENT_CONNECT, new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                join();
             }
         });
 
@@ -401,7 +410,8 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
         mSocket.on("joined", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                JSONObject data = (JSONObject) args[0];
+                handleJoined(data);
             }
         });
 
@@ -465,10 +475,38 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
     private void join() {
 
 
+        sdpAction = SDPAction.Join;
+
+        // todo   use iceservers
+        PeerConnection.RTCConfiguration configuration = new PeerConnection.RTCConfiguration(new ArrayList());
+        configuration.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
+        configuration.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
+        configuration.iceTransportsType = PeerConnection.IceTransportsType.ALL;
+        configuration.sdpSemantics = PeerConnection.SdpSemantics.PLAN_B;  // PLAN_B for now
+
+
+        MediaConstraints constraints = MediaConstraintUtil.connectionConstraints();
+
+        final PeerConnection pc = factory.createPeerConnection(configuration, this);
+
+        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
+
+        pc.createOffer(this, offerConstraints);
+
+        mPeerConnection = pc;
+
     }
 
 
     private void handleJoined(JSONObject data) {
+
+        JSONObject room  = data.optJSONObject("room");
+        JSONArray peers = room.optJSONArray("peers");
+
+        if (peers == null) {
+            Log.e(TAG, "joined message does not have peers");
+            return;
+        }
 
 
     }
@@ -495,9 +533,40 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
     }
 
 
-    // SdpObserver
+
     @Override
     public void onCreateSuccess(SessionDescription sessionDescription) {
+
+
+        if (sdpAction == SDPAction.Join) {
+
+            mPeerConnection.setLocalDescription(this,sessionDescription);
+
+            JSONObject object = new JSONObject();
+
+            try {
+                object.put("appkey","appkey");
+                object.put("room", this.authToken.getRoom());
+                object.put("user", this.authToken.getUser());
+                object.put("token", this.authToken.getToken());
+                object.put("planb", true);
+                object.put("sdp", sessionDescription.description);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            this.mSocket.emit("join", "");
+        }
+
+        if (sdpAction == SDPAction.AddStream) {
+
+
+        }
+
+        if (sdpAction == SDPAction.RemoveStream) {
+
+
+        }
 
     }
 
@@ -514,13 +583,11 @@ public class RTCEngine implements SdpObserver, PeerConnection.Observer{
     @Override
     public void onSetFailure(String s) {
 
+        throw new RuntimeException(s);
     }
 
 
-
     // PeerConnection.Observer
-
-
 
     @Override
     public void onSignalingChange(PeerConnection.SignalingState signalingState) {
