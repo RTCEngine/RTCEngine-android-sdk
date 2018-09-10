@@ -41,6 +41,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import cc.dot.rtc.exception.BuilderException;
+import cc.dot.rtc.peer.Peer;
 import cc.dot.rtc.peer.PeerManager;
 import cc.dot.rtc.utils.AuthToken;
 import cc.dot.rtc.utils.MediaConstraintUtil;
@@ -546,7 +547,6 @@ public class RTCEngine implements PeerConnection.Observer {
 
         MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
 
-
         pc.createOffer(new cc.dot.rtc.utils.SdpObserver() {
             @Override
             public void onCreateSuccess(SessionDescription sessionDescription) {
@@ -870,6 +870,39 @@ public class RTCEngine implements PeerConnection.Observer {
     }
 
 
+    private String stringForIceState(PeerConnection.IceConnectionState newState){
+
+        String statestr;
+        switch (newState){
+            case NEW:
+                statestr = "NEW";
+                break;
+            case CHECKING:
+                statestr = "checking";
+                break;
+            case COMPLETED:
+                statestr = "completed";
+                break;
+            case CONNECTED:
+                statestr = "connected";
+                break;
+            case CLOSED:
+                statestr = "closed";
+                break;
+            case FAILED:
+                statestr = "failed";
+                break;
+            case DISCONNECTED:
+                statestr = "disconnected";
+                break;
+            default:
+                statestr = "";
+                break;
+        }
+
+        return statestr;
+    }
+
     // PeerConnection.Observer
 
     @Override
@@ -880,21 +913,26 @@ public class RTCEngine implements PeerConnection.Observer {
     @Override
     public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
 
+        String state = stringForIceState(iceConnectionState);
+
+        Log.d(TAG, "onIceConnectionChange: " + state);
+
     }
 
     @Override
-    public void onIceConnectionReceivingChange(boolean b) {
+    public void onIceConnectionReceivingChange(boolean b) {}
 
-    }
 
     @Override
     public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
 
+        Log.d(TAG, "onIceGatheringChange");
     }
 
     @Override
     public void onIceCandidate(IceCandidate iceCandidate) {
 
+        Log.d(TAG, "onIceCandidate " + iceCandidate.sdp);
     }
 
     @Override
@@ -904,6 +942,22 @@ public class RTCEngine implements PeerConnection.Observer {
 
     @Override
     public void onAddStream(MediaStream mediaStream) {
+
+        String streamId = mediaStream.getId();
+
+        Peer peer = peerManager.peerForStream(streamId);
+
+        if (peer == null) {
+            Log.e(TAG, "onAddStream but can not find peer");
+            return;
+        }
+
+        boolean audio = mediaStream.audioTracks.size() > 0;
+        boolean video = mediaStream.videoTracks.size() > 0;
+
+        //String peerId, String streamId, MediaStream mediaStream, JSONObject attributes
+
+        // todo 
 
     }
 
@@ -920,11 +974,15 @@ public class RTCEngine implements PeerConnection.Observer {
     @Override
     public void onRenegotiationNeeded() {
 
+        Log.d(TAG, "onRenegotiationNeeded");
     }
+
+
 
     @Override
     public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
 
+        Log.d(TAG, "onAddTrack" + rtpReceiver.id());
     }
 
 
