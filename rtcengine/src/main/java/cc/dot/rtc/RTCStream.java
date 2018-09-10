@@ -6,6 +6,7 @@ import android.media.projection.MediaProjection;
 import android.os.Build;
 import android.util.Log;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.webrtc.AudioSource;
 import org.webrtc.AudioTrack;
@@ -18,6 +19,7 @@ import org.webrtc.Logging;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
 import org.webrtc.PeerConnectionFactory;
+import org.webrtc.RtpSender;
 import org.webrtc.ScreenCapturerAndroid;
 import org.webrtc.VideoCapturer;
 import org.webrtc.VideoSource;
@@ -52,6 +54,7 @@ public class RTCStream {
         private Intent screenCaptureIntent;
         private String mediaStreamId;
         private VideoCapturer videoCapturer;
+        private JSONObject attributes;
         private RTCEngine engine;
 
         private RTCVideoProfile videoProfile = RTCVideoProfile.RTCEngine_VideoProfile_240P_2;
@@ -87,6 +90,11 @@ public class RTCStream {
             return this;
         }
 
+        public Builder setAttributes(JSONObject attributes) {
+            this.attributes = attributes;
+            return this;
+        }
+
         public RTCStream build() {
             this.local = true;
             this.mediaStreamId = UUID.randomUUID().toString();
@@ -117,16 +125,21 @@ public class RTCStream {
     private Intent screenCaptureIntent;
     private RTCVideoProfile videoProfile;
     private String mediaStreamId;
-    private MediaStream mediaStream;
+    protected MediaStream mediaStream;
     private String peerId;
 
     private RTCEngine engine;
 
-    private AudioTrack mAudioTrack;
-    private VideoTrack mVideoTrack;
+    protected AudioTrack mAudioTrack;
+    protected VideoTrack mVideoTrack;
+
     private VideoSource mVideoSource;
     private AudioSource mAudioSource;
     private VideoCapturer mVideoCapturer;
+
+    protected RtpSender videoSender;
+    protected RtpSender audioSender;
+
 
     private RTCView mView;
     private boolean closed;
@@ -144,6 +157,7 @@ public class RTCStream {
         this.audio = builder.audio;
         this.video = builder.video;
         this.videoProfile = builder.videoProfile;
+        this.attributes = builder.attributes;
         this.screenCaptureIntent = builder.screenCaptureIntent;
         this.mediaStreamId = builder.mediaStreamId;
         this.mVideoCapturer = builder.videoCapturer;
@@ -152,19 +166,17 @@ public class RTCStream {
         EglBase.Context eglContext = engine.rootEglBase.getEglBaseContext();
 
 
-        this.engine.addTask(() -> {
-            this.setupLocalMedia();
-        });
     }
 
 
     // for internal use
-    protected RTCStream(String peerId, String streamId, MediaStream mediaStream) {
+    protected RTCStream(String peerId, String streamId, MediaStream mediaStream, JSONObject attributes) {
 
         this.mediaStream = mediaStream;
         this.peerId = peerId;
         this.mediaStreamId = streamId;
         this.local = false;
+        this.attributes = attributes;
 
     }
 
@@ -238,6 +250,7 @@ public class RTCStream {
     public void setStreamListener(RTCStreamListener listener) {
         mListener = listener;
     }
+
 
     public void destroy() {
 
@@ -328,6 +341,23 @@ public class RTCStream {
     }
 
 
+    protected JSONObject dumps() {
+
+        JSONObject object = new JSONObject();
+
+        try {
+            object.put("id", peerId);
+            object.put("msid", mediaStreamId);
+            object.put("local", local);
+            object.put("bitrate", videoProfile.getBits());
+            object.put("attributes", attributes);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+
+        return object;
+    }
 
     protected void close() {
 

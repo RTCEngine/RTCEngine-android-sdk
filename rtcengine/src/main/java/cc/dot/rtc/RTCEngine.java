@@ -32,6 +32,7 @@ import org.webrtc.audio.JavaAudioDeviceModule;
 
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import cc.dot.rtc.exception.BuilderException;
+import cc.dot.rtc.peer.PeerManager;
 import cc.dot.rtc.utils.AuthToken;
 import cc.dot.rtc.utils.MediaConstraintUtil;
 import dot.cc.rtcengine.BuildConfig;
@@ -58,9 +60,10 @@ import okhttp3.Response;
  * Created by xiang on 05/09/2018.
  */
 
-public class RTCEngine implements PeerConnection.Observer, SdpObserver{
 
 
+// todo,  make Observer for internal use
+public class RTCEngine implements PeerConnection.Observer {
 
 
     public enum  RTCEngineStatus {
@@ -95,7 +98,7 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
         public void onStateChange(RTCEngineStatus status);
 
 
-        public void onReceiveMessage(String text);
+        public void onReceiveMessage(JSONObject message);
 
     }
 
@@ -177,8 +180,9 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
 
     private Map<String, JSONObject>  msAttributes = new HashMap<>();
 
-    private boolean closed;
+    private boolean closed = false;
 
+    private PeerManager peerManager = new PeerManager();
 
     private enum SDPAction {
         Join,
@@ -224,6 +228,8 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
         PeerConnectionFactory.initialize(options);
 
         createPeerConnectionFactory();
+
+
     }
 
 
@@ -234,13 +240,52 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
             return;
         }
 
+        if (localStreams.get(stream.getStreamId()) != null) {
+            Log.e(TAG, "stream alread in");
+            return;
+        }
+
+        this.executor.execute(() -> {
+            this.addStreamInternal(stream);
+        });
 
     }
 
 
     public void removeStream(final RTCStream stream) {
 
+        if (mStatus != RTCEngineStatus.Connected) {
+            return;
+        }
 
+        if (localStreams.get(stream.getStreamId()) == null) {
+            return;
+        }
+
+        localStreams.remove(stream.getStreamId());
+
+        if (mPeerConnection == null) {
+            return;
+        }
+
+        if (stream.audioSender != null) {
+            mPeerConnection.removeTrack(stream.audioSender);
+        }
+
+        if(stream.videoSender != null) {
+            mPeerConnection.removeTrack(stream.videoSender);
+        }
+
+        executor.execute(() -> {
+
+
+        });
+
+
+        mHandler.post(() -> {
+
+            mEngineListener.onRemoveLocalStream(stream);
+        });
     }
 
 
@@ -418,21 +463,24 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
         mSocket.on("offer", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                JSONObject data = (JSONObject) args[0];
+                handleOffer(data);
             }
         });
 
         mSocket.on("answer", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                JSONObject data = (JSONObject) args[0];
+                handleAnswer(data);
             }
         });
 
         mSocket.on("peerRemoved", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                JSONObject data = (JSONObject) args[0];
+                handlePeerRemoved(data);
             }
         });
 
@@ -440,14 +488,16 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
         mSocket.on("peerConnected", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                JSONObject data = (JSONObject) args[0];
+                handlePeerConnected(data);
             }
         });
 
         mSocket.on("streamAdded", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                JSONObject data = (JSONObject) args[0];
+                handleStreamAdded(data);
             }
         });
 
@@ -455,7 +505,8 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
         mSocket.on("configure", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-
+                JSONObject data = (JSONObject) args[0];
+                handleConfigure(data);
             }
         });
 
@@ -463,7 +514,11 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
         mSocket.on("message", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
+                JSONObject data = (JSONObject) args[0];
 
+                mHandler.post(() -> {
+                    mEngineListener.onReceiveMessage(data);
+                });
             }
         });
 
@@ -491,10 +546,126 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
 
         MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
 
-        pc.createOffer(this, offerConstraints);
+
+        pc.createOffer(new cc.dot.rtc.utils.SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                mPeerConnection.setLocalDescription(this,sessionDescription);
+
+                JSONObject object = new JSONObject();
+
+                try {
+                    object.put("appkey","appkey");
+                    object.put("room", authToken.getRoom());
+                    object.put("user", authToken.getUser());
+                    object.put("token",authToken.getToken());
+                    object.put("planb", true);
+                    object.put("sdp", sessionDescription.description);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+                mSocket.emit("join", object);
+            }
+
+            @Override
+            public void onSetSuccess() {
+
+            }
+        }, offerConstraints);
+
 
         mPeerConnection = pc;
 
+    }
+
+
+    private void  addStreamInternal(RTCStream stream) {
+
+        stream.setupLocalMedia();
+
+        localStreams.put(stream.getStreamId(), stream);
+
+
+        if (stream.mAudioTrack != null) {
+            stream.audioSender = mPeerConnection.addTrack(stream.mAudioTrack,
+                    Arrays.asList(stream.getStreamId()));
+        }
+
+        if (stream.mVideoTrack != null) {
+            stream.videoSender = mPeerConnection.addTrack(stream.mVideoTrack,
+                    Arrays.asList(stream.getStreamId()));
+        }
+
+
+        stream.setPeerId(authToken.getUser());
+
+        // now we should handle sdp,  we just ignore the get/set sdp error
+        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
+        mPeerConnection.createOffer(new cc.dot.rtc.utils.SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                mPeerConnection.setLocalDescription(this, sessionDescription);
+
+                JSONObject object = new JSONObject();
+
+                try {
+                    object.put("stream", stream.dumps());
+                    object.put("sdp", sessionDescription.description);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+                mSocket.emit("addStream", object);
+            }
+
+            @Override
+            public void onSetSuccess() {
+
+            }
+
+        }, offerConstraints);
+
+    }
+
+
+    private void removeStreamInternal(RTCStream stream) {
+
+        MediaConstraints offerConstraints = MediaConstraintUtil.offerConstraints();
+
+        mPeerConnection.createOffer(new cc.dot.rtc.utils.SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                mPeerConnection.setLocalDescription(new cc.dot.rtc.utils.SdpObserver() {
+                    @Override
+                    public void onCreateSuccess(SessionDescription sessionDescription) {}
+
+                    @Override
+                    public void onSetSuccess() {
+
+                        JSONObject data = new JSONObject();
+
+                        try {
+                            data.put("stream", stream.dumps());
+                            data.put("sdp", sessionDescription.description);
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+
+                        mSocket.emit("removeStream", data);
+                    }
+
+                }, sessionDescription);
+            }
+
+            @Override
+            public void onSetSuccess() {
+
+            }
+        }, offerConstraints);
     }
 
 
@@ -504,10 +675,38 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
         JSONArray peers = room.optJSONArray("peers");
 
         if (peers == null) {
-            Log.e(TAG, "joined message does not have peers");
+            Log.e(TAG, "message does not have peers");
             return;
         }
 
+        // refactor this
+        for (int i = 0; i < peers.length(); i++) {
+            try {
+                JSONObject object = peers.getJSONObject(i);
+                peerManager.updatePeer(object);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+
+        String answerStr = data.optString("sdp");
+
+        SessionDescription answer = new SessionDescription(SessionDescription.Type.ANSWER, answerStr);
+
+        mPeerConnection.setRemoteDescription(new cc.dot.rtc.utils.SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+            }
+
+            @Override
+            public void onSetSuccess() {
+
+            }
+        }, answer);
+
+
+        setStatus(RTCEngineStatus.Connected);
 
     }
 
@@ -515,7 +714,129 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
     private void handleOffer(JSONObject data) {
 
 
+        JSONObject room  = data.optJSONObject("room");
+        JSONArray peers = room.optJSONArray("peers");
+
+        if (peers == null) {
+            Log.e(TAG, "message does not have peers");
+            return;
+        }
+
+        // refactor this
+        for (int i = 0; i < peers.length(); i++) {
+            try {
+                JSONObject object = peers.getJSONObject(i);
+                peerManager.updatePeer(object);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+
+
+        String offerStr = data.optString("sdp");
+        SessionDescription offer = new SessionDescription(SessionDescription.Type.OFFER, offerStr);
+
+        // This is ugly code, make this look better
+        mPeerConnection.setRemoteDescription(new cc.dot.rtc.utils.SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {}
+
+            @Override
+            public void onSetSuccess() {
+
+                MediaConstraints constrainst = MediaConstraintUtil.answerConstraints();
+
+                mPeerConnection.createAnswer(new cc.dot.rtc.utils.SdpObserver() {
+                    @Override
+                    public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                        mPeerConnection.setLocalDescription(new cc.dot.rtc.utils.SdpObserver() {
+                            @Override
+                            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                                Log.d(TAG, "onCreateSuccess");
+                            }
+                            @Override
+                            public void onSetSuccess() {
+                            }
+                        }, sessionDescription);
+
+                    }
+
+                    @Override
+                    public void onSetSuccess() {}
+                }, constrainst);
+
+            }
+
+        }, offer);
+
     }
+
+
+    private void handleAnswer(JSONObject data) {
+
+        JSONObject room  = data.optJSONObject("room");
+        JSONArray peers = room.optJSONArray("peers");
+
+        if (peers == null) {
+            Log.e(TAG, "message does not have peers");
+            return;
+        }
+
+        // refactor this
+        for (int i = 0; i < peers.length(); i++) {
+            try {
+                JSONObject object = peers.getJSONObject(i);
+                peerManager.updatePeer(object);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+
+
+        String answerStr = data.optString("sdp");
+        SessionDescription answer = new SessionDescription(SessionDescription.Type.ANSWER, answerStr);
+
+
+        mPeerConnection.setRemoteDescription(new cc.dot.rtc.utils.SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+            }
+
+            @Override
+            public void onSetSuccess() {
+
+                Log.d(TAG, "set remote sdp");
+            }
+        }, answer);
+    }
+
+
+    private void handlePeerRemoved(JSONObject data) {
+
+
+    }
+
+    private void handlePeerConnected(JSONObject data) {
+
+
+    }
+
+
+    private void handleStreamAdded(JSONObject data) {
+
+    }
+
+
+    private void handleConfigure(JSONObject data) {
+
+
+    }
+
+
+
 
     private String getFieldTrials() {
         String fieldTrials = "";
@@ -534,56 +855,18 @@ public class RTCEngine implements PeerConnection.Observer, SdpObserver{
 
 
 
-    @Override
-    public void onCreateSuccess(SessionDescription sessionDescription) {
+    private void setStatus(RTCEngineStatus status) {
 
-
-        if (sdpAction == SDPAction.Join) {
-
-            mPeerConnection.setLocalDescription(this,sessionDescription);
-
-            JSONObject object = new JSONObject();
-
-            try {
-                object.put("appkey","appkey");
-                object.put("room", this.authToken.getRoom());
-                object.put("user", this.authToken.getUser());
-                object.put("token", this.authToken.getToken());
-                object.put("planb", true);
-                object.put("sdp", sessionDescription.description);
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-
-            this.mSocket.emit("join", "");
+        if (this.mStatus == status) {
+            return;
         }
 
-        if (sdpAction == SDPAction.AddStream) {
+        mStatus = status;
 
+        mHandler.post(() -> {
 
-        }
-
-        if (sdpAction == SDPAction.RemoveStream) {
-
-
-        }
-
-    }
-
-    @Override
-    public void onSetSuccess() {
-
-    }
-
-    @Override
-    public void onCreateFailure(String s) {
-
-    }
-
-    @Override
-    public void onSetFailure(String s) {
-
-        throw new RuntimeException(s);
+            mEngineListener.onStateChange(mStatus);
+        });
     }
 
 
