@@ -64,7 +64,7 @@ import okhttp3.Response;
 
 
 // todo,  make Observer for internal use
-public class RTCEngine implements PeerConnection.Observer {
+public class RTCEngine {
 
 
     public enum  RTCEngineStatus {
@@ -279,7 +279,7 @@ public class RTCEngine implements PeerConnection.Observer {
 
         executor.execute(() -> {
 
-
+            this.removeStream(stream);
         });
 
 
@@ -543,7 +543,7 @@ public class RTCEngine implements PeerConnection.Observer {
 
         MediaConstraints constraints = MediaConstraintUtil.connectionConstraints();
 
-        final PeerConnection pc = factory.createPeerConnection(configuration, this);
+        final PeerConnection pc = factory.createPeerConnection(configuration, peerConnectionObserver);
 
         MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
 
@@ -870,6 +870,118 @@ public class RTCEngine implements PeerConnection.Observer {
     }
 
 
+
+    private PeerConnection.Observer peerConnectionObserver = new PeerConnection.Observer() {
+        @Override
+        public void onSignalingChange(PeerConnection.SignalingState signalingState) {
+
+        }
+
+        @Override
+        public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
+
+            String state = stringForIceState(iceConnectionState);
+
+            Log.d(TAG, "onIceConnectionChange: " + state);
+
+        }
+
+        @Override
+        public void onIceConnectionReceivingChange(boolean b) {
+
+        }
+
+        @Override
+        public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
+
+            Log.d(TAG, "onIceGatheringChange");
+        }
+
+        @Override
+        public void onIceCandidate(IceCandidate iceCandidate) {
+
+            Log.d(TAG, "onIceCandidate " + iceCandidate.sdp);
+        }
+
+        @Override
+        public void onIceCandidatesRemoved(IceCandidate[] iceCandidates) {
+
+        }
+
+        @Override
+        public void onAddStream(MediaStream mediaStream) {
+
+            String streamId = mediaStream.getId();
+
+            Peer peer = peerManager.peerForStream(streamId);
+
+            if (peer == null) {
+                Log.e(TAG, "onAddStream but can not find peer");
+                return;
+            }
+
+            boolean audio = mediaStream.audioTracks.size() > 0;
+            boolean video = mediaStream.videoTracks.size() > 0;
+
+            RTCStream stream = new RTCStream(RTCEngine.this.mContext, peer.getId(), streamId, audio, video, mediaStream, RTCEngine.this);
+
+            for (JSONObject streamObj: peer.getStreams()) {
+                String _streamId = streamObj.optString("id", "");
+                if (_streamId.equalsIgnoreCase(streamId)) {
+                    JSONObject attributes = streamObj.optJSONObject("attributes");
+                    stream.attributes = attributes;
+                }
+            }
+
+            remoteStreams.put(streamId, stream);
+
+            // init view here
+            mHandler.post(() -> {
+                RTCView view = new RTCView(RTCEngine.this.mContext, RTCEngine.this.rootEglBase.getEglBaseContext());
+                view.setStream(mediaStream);
+
+                stream.mView = view;
+
+                mEngineListener.onAddRemoteStream(stream);
+            });
+
+        }
+
+        @Override
+        public void onRemoveStream(MediaStream mediaStream) {
+
+            Log.d(TAG, "onRemoveStream: " + mediaStream.getId());
+
+            String streamId = mediaStream.getId();
+
+            RTCStream stream = remoteStreams.get(streamId);
+
+            remoteStreams.remove(streamId);
+
+            mHandler.post(() -> {
+
+                mEngineListener.onRemoveRemoteStream(stream);
+            });
+        }
+
+        @Override
+        public void onDataChannel(DataChannel dataChannel) {
+
+        }
+
+        @Override
+        public void onRenegotiationNeeded() {
+
+        }
+
+        @Override
+        public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
+
+            Log.d(TAG, "onAddTrack" + rtpReceiver.id());
+        }
+    };
+
+
     private String stringForIceState(PeerConnection.IceConnectionState newState){
 
         String statestr;
@@ -902,119 +1014,5 @@ public class RTCEngine implements PeerConnection.Observer {
 
         return statestr;
     }
-
-    // PeerConnection.Observer
-
-    @Override
-    public void onSignalingChange(PeerConnection.SignalingState signalingState) {
-
-    }
-
-    @Override
-    public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
-
-        String state = stringForIceState(iceConnectionState);
-
-        Log.d(TAG, "onIceConnectionChange: " + state);
-
-    }
-
-    @Override
-    public void onIceConnectionReceivingChange(boolean b) {}
-
-
-    @Override
-    public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
-
-        Log.d(TAG, "onIceGatheringChange");
-    }
-
-    @Override
-    public void onIceCandidate(IceCandidate iceCandidate) {
-
-        Log.d(TAG, "onIceCandidate " + iceCandidate.sdp);
-    }
-
-    @Override
-    public void onIceCandidatesRemoved(IceCandidate[] iceCandidates) {
-
-    }
-
-    @Override
-    public void onAddStream(MediaStream mediaStream) {
-
-        String streamId = mediaStream.getId();
-
-        Peer peer = peerManager.peerForStream(streamId);
-
-        if (peer == null) {
-            Log.e(TAG, "onAddStream but can not find peer");
-            return;
-        }
-
-        boolean audio = mediaStream.audioTracks.size() > 0;
-        boolean video = mediaStream.videoTracks.size() > 0;
-
-        RTCStream stream = new RTCStream(this.mContext, peer.getId(), streamId, audio, video, mediaStream, this);
-
-        for (JSONObject streamObj: peer.getStreams()) {
-            String _streamId = streamObj.optString("id", "");
-            if (_streamId.equalsIgnoreCase(streamId)) {
-                JSONObject attributes = streamObj.optJSONObject("attributes");
-                stream.attributes = attributes;
-            }
-        }
-
-        remoteStreams.put(streamId, stream);
-
-        // init view here
-        mHandler.post(() -> {
-            RTCView view = new RTCView(this.mContext, this.rootEglBase.getEglBaseContext());
-            view.setStream(mediaStream);
-
-            stream.mView = view;
-
-            mEngineListener.onAddRemoteStream(stream);
-        });
-
-    }
-
-    @Override
-    public void onRemoveStream(MediaStream mediaStream) {
-
-        Log.d(TAG, "onRemoveStream: " + mediaStream.getId());
-
-        String streamId = mediaStream.getId();
-
-        RTCStream stream = remoteStreams.get(streamId);
-
-        remoteStreams.remove(streamId);
-
-        mHandler.post(() -> {
-
-            mEngineListener.onRemoveRemoteStream(stream);
-        });
-
-    }
-
-    @Override
-    public void onDataChannel(DataChannel dataChannel) {
-
-    }
-
-    @Override
-    public void onRenegotiationNeeded() {
-
-        Log.d(TAG, "onRenegotiationNeeded");
-    }
-
-
-
-    @Override
-    public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
-
-        Log.d(TAG, "onAddTrack" + rtpReceiver.id());
-    }
-
 
 }

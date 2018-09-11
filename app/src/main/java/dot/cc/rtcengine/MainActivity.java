@@ -111,8 +111,7 @@ public class MainActivity extends AppCompatActivity {
                         //rtcEngine.joinRoom(token);
 
                         rtcEngine.joinRoom(token);
-
-
+                        
                     }
                 });
             }
