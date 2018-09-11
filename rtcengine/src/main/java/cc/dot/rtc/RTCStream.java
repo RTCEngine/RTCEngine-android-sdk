@@ -141,13 +141,14 @@ public class RTCStream {
     protected RtpSender audioSender;
 
 
-    private RTCView mView;
-    private boolean closed;
 
-    protected  RTCStreamListener mListener;
+    private boolean closed;
     private FilterManager filterManager;
     private CapturerObserver capturerObserver;
-    private JSONObject attributes = new JSONObject();
+
+    protected RTCView mView;
+    protected RTCStreamListener mListener;
+    protected JSONObject attributes = new JSONObject();
 
 
     RTCStream(Builder builder) {
@@ -165,19 +166,24 @@ public class RTCStream {
 
         EglBase.Context eglContext = engine.rootEglBase.getEglBaseContext();
 
+        filterManager = new FilterManager();
+
+        mView = new RTCView(this.context, eglContext);
 
     }
 
 
     // for internal use
-    protected RTCStream(String peerId, String streamId, MediaStream mediaStream, JSONObject attributes) {
+    protected RTCStream(Context context,String peerId, String streamId, boolean audio, boolean video, MediaStream mediaStream, RTCEngine engine) {
 
+        this.context = context;
         this.mediaStream = mediaStream;
         this.peerId = peerId;
         this.mediaStreamId = streamId;
         this.local = false;
-        this.attributes = attributes;
-
+        this.engine = engine;
+        this.audio = audio;
+        this.video = video;
     }
 
 

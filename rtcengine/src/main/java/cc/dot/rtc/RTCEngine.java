@@ -955,14 +955,45 @@ public class RTCEngine implements PeerConnection.Observer {
         boolean audio = mediaStream.audioTracks.size() > 0;
         boolean video = mediaStream.videoTracks.size() > 0;
 
-        //String peerId, String streamId, MediaStream mediaStream, JSONObject attributes
+        RTCStream stream = new RTCStream(this.mContext, peer.getId(), streamId, audio, video, mediaStream, this);
 
-        // todo 
+        for (JSONObject streamObj: peer.getStreams()) {
+            String _streamId = streamObj.optString("id", "");
+            if (_streamId.equalsIgnoreCase(streamId)) {
+                JSONObject attributes = streamObj.optJSONObject("attributes");
+                stream.attributes = attributes;
+            }
+        }
+
+        remoteStreams.put(streamId, stream);
+
+        // init view here
+        mHandler.post(() -> {
+            RTCView view = new RTCView(this.mContext, this.rootEglBase.getEglBaseContext());
+            view.setStream(mediaStream);
+
+            stream.mView = view;
+
+            mEngineListener.onAddRemoteStream(stream);
+        });
 
     }
 
     @Override
     public void onRemoveStream(MediaStream mediaStream) {
+
+        Log.d(TAG, "onRemoveStream: " + mediaStream.getId());
+
+        String streamId = mediaStream.getId();
+
+        RTCStream stream = remoteStreams.get(streamId);
+
+        remoteStreams.remove(streamId);
+
+        mHandler.post(() -> {
+
+            mEngineListener.onRemoveRemoteStream(stream);
+        });
 
     }
 
