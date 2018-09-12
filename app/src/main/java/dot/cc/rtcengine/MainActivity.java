@@ -108,10 +108,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onSuccess(String token) {
 
-                        //rtcEngine.joinRoom(token);
-
                         rtcEngine.joinRoom(token);
-                        
                     }
                 });
             }

@@ -263,6 +263,7 @@ public class RTCStream {
     }
 
 
+
     public void setupLocalMedia() {
 
         if (!local) {
@@ -426,9 +427,6 @@ public class RTCStream {
     }
 
 
-
-
-
     private VideoCapturer createLocalVideoCapturer() {
 
         if (mVideoCapturer != null) {
@@ -475,31 +473,37 @@ public class RTCStream {
         @Override
         public void onCameraError(String s) {
 
+            Log.d(TAG, "onCameraError " + s);
         }
 
         @Override
         public void onCameraDisconnected() {
 
+            Log.d(TAG, "onCameraDisconnected");
         }
 
         @Override
         public void onCameraFreezed(String s) {
 
+            Log.d(TAG, "onCameraFreezed " + s);
         }
 
         @Override
         public void onCameraOpening(String s) {
 
+            Log.d(TAG, "onCameraOpening " + s);
         }
 
         @Override
         public void onFirstFrameAvailable() {
 
+            Log.d(TAG, "onFirstFrameAvailable");
         }
 
         @Override
         public void onCameraClosed() {
 
+            Log.d(TAG, "onCameraClosed");
         }
     };
 
