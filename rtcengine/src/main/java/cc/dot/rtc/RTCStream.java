@@ -12,6 +12,8 @@ import org.webrtc.AudioSource;
 import org.webrtc.AudioTrack;
 import org.webrtc.Camera1Capturer;
 import org.webrtc.Camera1Enumerator;
+import org.webrtc.Camera2Enumerator;
+import org.webrtc.CameraEnumerator;
 import org.webrtc.CameraVideoCapturer;
 import org.webrtc.CapturerObserver;
 import org.webrtc.EglBase;
@@ -22,12 +24,13 @@ import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RtpSender;
 import org.webrtc.ScreenCapturerAndroid;
 import org.webrtc.VideoCapturer;
+import org.webrtc.SurfaceTextureHelper;
+import org.webrtc.VideoFrame;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 
 import java.util.UUID;
 
-import cc.dot.rtc.capturer.RTCVideoCapturer;
 import cc.dot.rtc.filter.FilterManager;
 
 import static android.util.Log.d;
@@ -53,7 +56,7 @@ public class RTCStream {
         private boolean video;
         private Intent screenCaptureIntent;
         private String mediaStreamId;
-        private VideoCapturer videoCapturer;
+        private RTCExternalCapturer videoCapturer;
         private JSONObject attributes;
         private RTCEngine engine;
 
@@ -80,7 +83,7 @@ public class RTCStream {
             return this;
         }
 
-        public Builder setCapturer(RTCVideoCapturer capturer) {
+        public Builder setCapturer(RTCExternalCapturer capturer) {
             this.videoCapturer = capturer;
             return this;
         }
@@ -136,6 +139,8 @@ public class RTCStream {
 
     private VideoSource mVideoSource;
     private AudioSource mAudioSource;
+
+    private SurfaceTextureHelper textureHelper;
     private VideoCapturer mVideoCapturer;
 
     protected RtpSender videoSender;
@@ -162,11 +167,14 @@ public class RTCStream {
         this.attributes = builder.attributes;
         this.screenCaptureIntent = builder.screenCaptureIntent;
         this.mediaStreamId = builder.mediaStreamId;
-        this.mVideoCapturer = builder.videoCapturer;
+
+        // TODO
+        //this.mVideoCapturer = builder.videoCapturer;
         this.engine = builder.engine;
 
         EglBase.Context eglContext = engine.rootEglBase.getEglBaseContext();
 
+        this.textureHelper =  SurfaceTextureHelper.create("VideoCapturerThread", eglContext);
         filterManager = new FilterManager();
 
         mView = new RTCView(this.context, eglContext);
@@ -300,9 +308,11 @@ public class RTCStream {
             mVideoSource = videoSource;
             mVideoCapturer = videoCapturer;
 
+            videoCapturer.initialize(textureHelper,context,capturerObserver);
+
             videoCapturer.startCapture(width, height, fps);
 
-            mVideoSource.adaptOutputFormat(width, height, fps);
+            //mVideoSource.adaptOutputFormat(width, height, fps);
         }
 
 
@@ -445,28 +455,54 @@ public class RTCStream {
             }
         }
 
-        // by default, we capturer to texture
-        Camera1Enumerator enumerator = new Camera1Enumerator();
+        CameraEnumerator enumerator = Camera2Enumerator.isSupported(this.context)
+                ? new Camera2Enumerator(context)
+                : new Camera1Enumerator();
+
+
         final String[] deviceNames = enumerator.getDeviceNames();
 
+        Log.d(TAG, deviceNames.toString());
+
+        CameraVideoCapturer cameraCapturer = null;
         for (String device : deviceNames) {
             if (enumerator.isFrontFacing(device)) {
-                Camera1Capturer camera1Capturer = (Camera1Capturer)enumerator.createCapturer(device, cameraEventsHandler);
-                if (camera1Capturer != null) {
-                    return camera1Capturer;
-                }
+                cameraCapturer = enumerator.createCapturer(device, cameraEventsHandler);
             }
+        }
+
+        if (cameraCapturer != null) {
+            return cameraCapturer;
         }
 
         for (String device : deviceNames) {
-            Camera1Capturer camera1Capturer = (Camera1Capturer)enumerator.createCapturer(device, cameraEventsHandler);
-            if (camera1Capturer != null) {
-                return camera1Capturer;
+            cameraCapturer = enumerator.createCapturer(device, cameraEventsHandler);
+            if (cameraCapturer != null) {
+                break;
             }
         }
 
-        return null;
+        return cameraCapturer;
     }
+
+
+
+    private CapturerObserver capturerConsumer = new CapturerObserver() {
+        @Override
+        public void onCapturerStarted(boolean b) {
+            capturerObserver.onCapturerStarted(b);
+        }
+
+        @Override
+        public void onCapturerStopped() {
+            capturerObserver.onCapturerStopped();
+        }
+
+        @Override
+        public void onFrameCaptured(VideoFrame videoFrame) {
+            capturerObserver.onFrameCaptured(videoFrame);
+        }
+    };
 
 
     private CameraVideoCapturer.CameraEventsHandler cameraEventsHandler = new CameraVideoCapturer.CameraEventsHandler() {

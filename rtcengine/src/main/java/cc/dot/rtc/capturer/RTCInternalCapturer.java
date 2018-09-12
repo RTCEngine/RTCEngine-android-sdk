@@ -4,8 +4,6 @@ import android.content.Context;
 import android.os.SystemClock;
 
 import org.webrtc.CapturerObserver;
-import org.webrtc.JavaI420Buffer;
-import org.webrtc.NV12Buffer;
 import org.webrtc.NV21Buffer;
 import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.VideoCapturer;
@@ -18,9 +16,9 @@ import java.util.concurrent.TimeUnit;
  * Created by xiang on 05/09/2018.
  */
 
-public abstract class RTCVideoCapturer implements VideoCapturer {
+public class RTCInternalCapturer implements VideoCapturer {
 
-    private static final String TAG = RTCVideoCapturer.class.getSimpleName();
+    private static final String TAG = RTCInternalCapturer.class.getSimpleName();
 
     private CapturerObserver capturerObserver;
 
