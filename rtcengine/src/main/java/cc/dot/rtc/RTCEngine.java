@@ -278,8 +278,7 @@ public class RTCEngine {
         }
 
         executor.execute(() -> {
-
-            this.removeStream(stream);
+            this.removeStreamInternal(stream);
         });
 
 
@@ -314,6 +313,19 @@ public class RTCEngine {
         executor.execute(() -> {
             this.setupSignlingClient();
         });
+
+        return true;
+    }
+
+
+    public boolean leaveRoom() {
+
+        if (mStatus != RTCEngineStatus.Connected) {
+            return false;
+        }
+
+        this.sendLeave();
+
 
         return true;
     }
@@ -580,6 +592,52 @@ public class RTCEngine {
 
     }
 
+
+    private void sendLeave() {
+
+        JSONObject object = new JSONObject();
+        this.mSocket.emit("leave", object);
+    }
+
+
+    private void close() {
+
+        if (closed) {
+            return;
+        }
+
+        closed = true;
+
+        if (mSocket != null) {
+            mSocket.disconnect();
+        }
+
+        for (RTCStream stream: localStreams.values()) {
+            if (stream.mediaStream != null) {
+                mPeerConnection.removeStream(stream.mediaStream);
+            }
+            mHandler.post(() -> {
+                mEngineListener.onRemoveLocalStream(stream);
+            });
+        }
+
+        for (RTCStream stream: remoteStreams.values()) {
+            mHandler.post(() -> {
+                mEngineListener.onRemoveRemoteStream(stream);
+            });
+
+            stream.close();
+        }
+
+        localStreams.clear();
+        remoteStreams.clear();
+
+        peerManager.clearAll();
+
+        if (mPeerConnection != null) {
+            mPeerConnection.dispose();
+        }
+    }
 
     private void  addStreamInternal(RTCStream stream) {
 

@@ -22,6 +22,7 @@ import java.util.Random;
 
 import cc.dot.rtc.RTCEngine;
 import cc.dot.rtc.RTCStream;
+import cc.dot.rtc.RTCView;
 import cc.dot.rtc.utils.PermissionUtils;
 
 
@@ -29,7 +30,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static String TAG = MainActivity.class.getSimpleName();
 
-    private static String tokenUrl = "http://192.168.202.208:3888/api/generateToken";
+    private static String tokenUrl = "http://192.168.15.18:3888/api/generateToken";
     private static String room = "test_room";
     private static String appSecret = "test_secret";
 
@@ -43,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
 
     private FrameLayout videoLayout;
 
-
+    private boolean connected = false;
 
 
     @Override
@@ -98,19 +99,27 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-                RTCEngine.generateToken(tokenUrl,appSecret,room, username, new RTCEngine.TokenCallback() {
-                    @Override
-                    public void onFailure() {
 
-                        Toast.makeText(getApplicationContext(), "can not get token", Toast.LENGTH_SHORT).show();
-                    }
+                if (!connected) {
 
-                    @Override
-                    public void onSuccess(String token) {
+                    RTCEngine.generateToken(tokenUrl, appSecret, room, username, new RTCEngine.TokenCallback() {
+                        @Override
+                        public void onFailure() {
 
-                        rtcEngine.joinRoom(token);
-                    }
-                });
+                            Toast.makeText(getApplicationContext(), "can not get token", Toast.LENGTH_SHORT).show();
+                        }
+
+                        @Override
+                        public void onSuccess(String token) {
+
+                            rtcEngine.joinRoom(token);
+                        }
+                    });
+
+                } else {
+                    
+                    rtcEngine.leaveRoom();
+                }
             }
         });
 
@@ -123,10 +132,11 @@ public class MainActivity extends AppCompatActivity {
                 .setVideo(true)
                 .build();
 
-
         localStream.setupLocalMedia();
 
         addVideo(username, localStream.getView());
+
+
     }
 
 
@@ -202,6 +212,7 @@ public class MainActivity extends AppCompatActivity {
         public void onJoined(String userId) {
 
             Log.d(TAG, "onJoined " + userId);
+
         }
 
         @Override
@@ -214,6 +225,12 @@ public class MainActivity extends AppCompatActivity {
         public void onAddLocalStream(RTCStream stream) {
 
             Log.d(TAG, "onAddLocalStream " + stream.getStreamId());
+
+            Toast.makeText(getApplicationContext(),
+                    "localstream added :" + stream.getStreamId(),
+                    Toast.LENGTH_SHORT).show();
+
+
         }
 
         @Override
@@ -226,12 +243,26 @@ public class MainActivity extends AppCompatActivity {
         public void onAddRemoteStream(RTCStream stream) {
 
             Log.d(TAG, "onAddRemoteStream " + stream.getStreamId());
+
+            Toast.makeText(getApplicationContext(), "onAddRemoteStream :" + stream.getStreamId(),
+                    Toast.LENGTH_SHORT).show();
+
+            addVideo(stream.getPeerId(), stream.getView());
+
+
         }
 
         @Override
         public void onRemoveRemoteStream(RTCStream stream) {
 
             Log.d(TAG, "onRemoveRemoteStream " + stream.getStreamId());
+
+
+            RTCView view = stream.getView();
+
+            videoLayout.removeView(view);
+
+            updateFrameLayout();
         }
 
         @Override
@@ -239,6 +270,21 @@ public class MainActivity extends AppCompatActivity {
 
             Log.d(TAG, "onStateChange ");
 
+            String  statusStr = (status == RTCEngine.RTCEngineStatus.Connected) ? "connected" : "leaved";
+
+            Toast.makeText(getApplicationContext(),statusStr,Toast.LENGTH_SHORT).show();
+
+            if (status == RTCEngine.RTCEngineStatus.Connected) {
+
+                rtcEngine.addStream(localStream);
+
+                joinButton.setText("leave");
+            }
+
+            if (status == RTCEngine.RTCEngineStatus.DisConnected) {
+
+                joinButton.setText("join");
+            }
         }
 
         @Override
