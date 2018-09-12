@@ -125,8 +125,8 @@ public class MainActivity extends AppCompatActivity {
 
 
         localStream.setupLocalMedia();
-
-        addVideo(username, localStream.getView());
+//
+//        addVideo(username, localStream.getView());
     }
 
 

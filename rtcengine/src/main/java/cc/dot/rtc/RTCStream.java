@@ -98,7 +98,8 @@ public class RTCStream {
         public RTCStream build() {
             this.local = true;
             this.mediaStreamId = UUID.randomUUID().toString();
-            return null;
+            RTCStream stream = new RTCStream(this);
+            return stream;
         }
 
     }

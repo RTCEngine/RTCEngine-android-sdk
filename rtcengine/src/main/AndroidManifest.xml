@@ -1,2 +1,2 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="dot.cc.rtcengine" />
+    package="cc.dot.rtcengine" />

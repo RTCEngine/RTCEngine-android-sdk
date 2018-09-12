@@ -45,7 +45,7 @@ import cc.dot.rtc.peer.Peer;
 import cc.dot.rtc.peer.PeerManager;
 import cc.dot.rtc.utils.AuthToken;
 import cc.dot.rtc.utils.MediaConstraintUtil;
-import dot.cc.rtcengine.BuildConfig;
+import cc.dot.rtcengine.BuildConfig;
 import io.socket.client.IO;
 import io.socket.client.Socket;
 
