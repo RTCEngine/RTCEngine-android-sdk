@@ -874,25 +874,78 @@ public class RTCEngine {
 
     private void handlePeerRemoved(JSONObject data) {
 
+        JSONObject peer  = data.optJSONObject("peer");
+        String peerId = peer.optString("id");
 
+        if (TextUtils.isEmpty(peerId)) {
+            return;
+        }
+
+        mHandler.post(() -> {
+            mEngineListener.onLeave(peerId);
+        });
     }
 
     private void handlePeerConnected(JSONObject data) {
 
+        JSONObject peer  = data.optJSONObject("peer");
+        String peerId = peer.optString("id");
+
+        if (TextUtils.isEmpty(peerId)) {
+            return;
+        }
+
+        mHandler.post(() -> {
+            mEngineListener.onJoined(peerId);
+        });
 
     }
 
 
     private void handleStreamAdded(JSONObject data) {
 
+        String streamId  = data.optString("msid");
+
+        if (TextUtils.isEmpty(streamId)) {
+            return;
+        }
+
+        RTCStream localStream = localStreams.get(streamId);
+
+        mHandler.post(() -> {
+
+            mEngineListener.onAddLocalStream(localStream);
+        });
+
     }
 
 
     private void handleConfigure(JSONObject data) {
 
+        String streamId  = data.optString("msid");
 
+        if (TextUtils.isEmpty(streamId)) {
+            return;
+        }
+
+        RTCStream remoteStream = remoteStreams.get(streamId);
+
+        if (remoteStream == null) {
+            return;
+        }
+
+
+        if (data.has("video")) {
+            boolean muted = !data.optBoolean("video");
+            remoteStream.onMuteVideo(muted);
+        }
+
+        if (data.has("audio")) {
+            boolean muted = !data.optBoolean("audio");
+            remoteStream.onMuteAudio(muted);
+        }
+        
     }
-
 
 
 
