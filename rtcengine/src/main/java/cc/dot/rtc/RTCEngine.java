@@ -168,7 +168,7 @@ public class RTCEngine {
 
     protected PeerConnectionFactory factory;
 
-    private boolean videoCodecHwAcceleration = true;
+    private boolean videoCodecHwAcceleration = false;
 
     private boolean videoFlexfecEnabled = false;
 
@@ -944,7 +944,7 @@ public class RTCEngine {
             boolean muted = !data.optBoolean("audio");
             remoteStream.onMuteAudio(muted);
         }
-        
+
     }
 
 

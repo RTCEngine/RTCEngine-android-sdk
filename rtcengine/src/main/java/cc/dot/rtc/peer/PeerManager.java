@@ -44,7 +44,7 @@ public class PeerManager {
 
         Peer peer = null;
         for (Peer _peer: peers.values()) {
-            List<JSONObject> streams = peer.getStreams();
+            List<JSONObject> streams = _peer.getStreams();
             for (int i = 0; i < streams.size(); i++) {
                 JSONObject stream = streams.get(i);
                 String _streamId = stream.optString("id","");

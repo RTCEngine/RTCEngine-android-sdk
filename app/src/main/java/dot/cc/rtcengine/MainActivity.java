@@ -117,7 +117,7 @@ public class MainActivity extends AppCompatActivity {
                     });
 
                 } else {
-                    
+
                     rtcEngine.leaveRoom();
                 }
             }
