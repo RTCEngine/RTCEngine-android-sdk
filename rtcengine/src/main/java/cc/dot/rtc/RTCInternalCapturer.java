@@ -1,4 +1,4 @@
-package cc.dot.rtc.capturer;
+package cc.dot.rtc;
 
 import android.content.Context;
 import android.os.SystemClock;
@@ -12,11 +12,13 @@ import org.webrtc.VideoFrame.Buffer;
 
 import java.util.concurrent.TimeUnit;
 
+import cc.dot.rtc.capturer.RTCVideoFrame;
+
 /**
  * Created by xiang on 05/09/2018.
  */
 
-public class RTCInternalCapturer implements VideoCapturer {
+class RTCInternalCapturer implements VideoCapturer {
 
     private static final String TAG = RTCInternalCapturer.class.getSimpleName();
 

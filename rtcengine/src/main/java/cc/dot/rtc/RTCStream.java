@@ -56,7 +56,8 @@ public class RTCStream {
         private boolean video;
         private Intent screenCaptureIntent;
         private String mediaStreamId;
-        private RTCExternalCapturer videoCapturer;
+        private RTCExternalCapturer externalCapturer;
+        private VideoCapturer videoCapturer;
         private JSONObject attributes;
         private RTCEngine engine;
 
@@ -84,7 +85,8 @@ public class RTCStream {
         }
 
         public Builder setCapturer(RTCExternalCapturer capturer) {
-            this.videoCapturer = capturer;
+            this.externalCapturer = capturer;
+            this.videoCapturer = capturer.internalCapturer;
             return this;
         }
 
@@ -168,8 +170,9 @@ public class RTCStream {
         this.screenCaptureIntent = builder.screenCaptureIntent;
         this.mediaStreamId = builder.mediaStreamId;
 
-        // TODO
-        //this.mVideoCapturer = builder.videoCapturer;
+
+        this.mVideoCapturer = builder.videoCapturer;
+
         this.engine = builder.engine;
 
         EglBase.Context eglContext = engine.rootEglBase.getEglBaseContext();
@@ -308,8 +311,8 @@ public class RTCStream {
             mVideoSource = videoSource;
             mVideoCapturer = videoCapturer;
 
-            videoCapturer.initialize(textureHelper,context,capturerObserver);
 
+            videoCapturer.initialize(textureHelper,context,this.capturerConsumer);
             videoCapturer.startCapture(width, height, fps);
 
             //mVideoSource.adaptOutputFormat(width, height, fps);
@@ -500,6 +503,10 @@ public class RTCStream {
 
         @Override
         public void onFrameCaptured(VideoFrame videoFrame) {
+
+            // here we process videoframe
+            Log.d(TAG, "onFrameCaptured");
+            
             capturerObserver.onFrameCaptured(videoFrame);
         }
     };
