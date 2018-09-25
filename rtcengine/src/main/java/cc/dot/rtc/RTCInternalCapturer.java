@@ -22,15 +22,12 @@ class RTCInternalCapturer implements VideoCapturer {
 
     private static final String TAG = RTCInternalCapturer.class.getSimpleName();
 
-    private CapturerObserver capturerObserver;
-
     private int mWidth;
     private int mHeight;
     private int mFramerate;
 
-    private byte[] mCacheBuffer;
 
-
+    protected CapturerObserver capturerObserver;
 
     @Override
     public void initialize(SurfaceTextureHelper surfaceTextureHelper, Context context, CapturerObserver capturerObserver) {
@@ -67,7 +64,6 @@ class RTCInternalCapturer implements VideoCapturer {
     public void changeCaptureFormat(int width, int height, int framerate) {
 
         if (this.capturerObserver != null) {
-
         }
     }
 
@@ -103,11 +99,5 @@ class RTCInternalCapturer implements VideoCapturer {
     }
 
 
-
-    // todo make a texture frame
-    public void onTextureFrame(){
-
-
-    }
 
 }

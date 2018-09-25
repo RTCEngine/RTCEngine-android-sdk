@@ -10,19 +10,19 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.webrtc.AudioSource;
 import org.webrtc.AudioTrack;
-import org.webrtc.Camera1Capturer;
 import org.webrtc.Camera1Enumerator;
 import org.webrtc.Camera2Enumerator;
 import org.webrtc.CameraEnumerator;
 import org.webrtc.CameraVideoCapturer;
 import org.webrtc.CapturerObserver;
 import org.webrtc.EglBase;
-import org.webrtc.Logging;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
 import org.webrtc.PeerConnectionFactory;
+import org.webrtc.RendererCommon;
 import org.webrtc.RtpSender;
 import org.webrtc.ScreenCapturerAndroid;
+import org.webrtc.TextureBufferImpl;
 import org.webrtc.VideoCapturer;
 import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.VideoFrame;
@@ -112,7 +112,6 @@ public class RTCStream {
 
     public interface RTCStreamListener {
 
-
         void onCameraError(RTCStream stream, String error);
 
         void onVideoMuted(RTCStream stream, boolean muted);
@@ -144,6 +143,7 @@ public class RTCStream {
 
     private SurfaceTextureHelper textureHelper;
     private VideoCapturer mVideoCapturer;
+    private RTCExternalCapturer mExternalCapturer;
 
     protected RtpSender videoSender;
     protected RtpSender audioSender;
@@ -172,6 +172,7 @@ public class RTCStream {
 
 
         this.mVideoCapturer = builder.videoCapturer;
+        this.mExternalCapturer = builder.externalCapturer;
 
         this.engine = builder.engine;
 
@@ -255,12 +256,12 @@ public class RTCStream {
     }
 
 
-    public void muteAudio(boolean muted) {
+    public void muteAudio(boolean muting) {
         // todo
     }
 
 
-    public void muteVideo(boolean muted) {
+    public void muteVideo(boolean muting) {
         // todo
     }
 
@@ -502,14 +503,46 @@ public class RTCStream {
         }
 
         @Override
-        public void onFrameCaptured(VideoFrame videoFrame) {
+        public void onFrameCaptured(final VideoFrame videoFrame) {
+
+            if (mExternalCapturer != null) {
+                // external capturer, do not use filter
+                capturerObserver.onFrameCaptured(videoFrame);
+                return;
+            }
+
+            final boolean isTextureFrame = videoFrame.getBuffer() instanceof VideoFrame.TextureBuffer;
+
+            if (!isTextureFrame) {
+                capturerObserver.onFrameCaptured(videoFrame);
+                return;
+            }
+
+
+            // filter only for texture frame
+//            if (filterManager.isUseFilter()) {
+//                VideoFrame.TextureBuffer buffer = (VideoFrame.TextureBuffer) videoFrame.getBuffer();
+//
+//                float[] texMatrix = RendererCommon.convertMatrixFromAndroidGraphicsMatrix(buffer.getTransformMatrix());
+//
+//                int rgbTexture = filterManager.drawFrame(buffer.getTextureId(),texMatrix,buffer.getWidth(),buffer.getHeight());
+//
+//                VideoFrame.TextureBuffer rgbBuffer = new TextureBufferImpl(buffer.getWidth(),buffer.getHeight(),
+//                        VideoFrame.TextureBuffer.Type.RGB, rgbTexture, buffer.getTransformMatrix(),
+//                        null, null, null);
+//
+//
+//            }
+            
 
             // here we process videoframe
             Log.d(TAG, "onFrameCaptured");
-            
             capturerObserver.onFrameCaptured(videoFrame);
+
         }
     };
+
+
 
 
     private CameraVideoCapturer.CameraEventsHandler cameraEventsHandler = new CameraVideoCapturer.CameraEventsHandler() {

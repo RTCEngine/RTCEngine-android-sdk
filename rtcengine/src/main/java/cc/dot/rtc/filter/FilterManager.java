@@ -63,14 +63,14 @@ public class FilterManager {
         }
     }
 
-    public byte[] getNV21Data(){
-        rgbaBuffer.asIntBuffer().put(rgbaIntBuffer.array());
-
-        //todo yuv convert
-
-
-        return nv21Buffer.array();
-    }
+//    public byte[] getNV21Data(){
+//        rgbaBuffer.asIntBuffer().put(rgbaIntBuffer.array());
+//
+//        //todo yuv convert
+//
+//
+//        return nv21Buffer.array();
+//    }
 
     public int drawFrame(int texId, float[] texMatrix, int texWidth, int texHeight) {
 
