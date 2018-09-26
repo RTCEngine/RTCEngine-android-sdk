@@ -599,6 +599,10 @@ public class RTCEngine {
         this.mSocket.emit("leave", object);
     }
 
+    protected void sendConfigure(JSONObject data) {
+
+        this.mSocket.emit("configure", data);
+    }
 
     private void close() {
 

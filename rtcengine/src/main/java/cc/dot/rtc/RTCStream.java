@@ -251,18 +251,63 @@ public class RTCStream {
 
     public boolean switchCamara() {
 
+
         // todo
         return true;
     }
 
 
     public void muteAudio(boolean muting) {
-        // todo
+
+        if (mAudioTrack != null) {
+
+            if (mAudioTrack.enabled() == !muting) {
+                return;
+            }
+
+            mAudioTrack.setEnabled(!muting);
+
+
+            JSONObject data = new JSONObject();
+            try {
+                data.put("audio", true);
+                data.put("id", peerId);
+                data.put("msid", mediaStreamId);
+                data.put("local", local);
+                data.put("muting", muting);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            engine.sendConfigure(data);
+
+        }
     }
 
 
     public void muteVideo(boolean muting) {
-        // todo
+
+        if (mVideoTrack != null) {
+
+            if (mVideoTrack.enabled() == !muting) {
+                return;
+            }
+
+            mVideoTrack.setEnabled(!muting);
+
+            JSONObject data = new JSONObject();
+            try {
+                data.put("video", true);
+                data.put("id", peerId);
+                data.put("msid", mediaStreamId);
+                data.put("local", local);
+                data.put("muting", muting);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            engine.sendConfigure(data);
+
+        }
     }
 
 
@@ -273,9 +318,9 @@ public class RTCStream {
 
     public void destroy() {
 
+        // todo
     }
-
-
+    
 
     public void setupLocalMedia() {
 
