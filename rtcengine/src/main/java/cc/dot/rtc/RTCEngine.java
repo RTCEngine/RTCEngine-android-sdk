@@ -940,13 +940,17 @@ public class RTCEngine {
 
 
         if (data.has("video")) {
-            boolean muted = !data.optBoolean("video");
-            remoteStream.onMuteVideo(muted);
+            boolean muting = data.optBoolean("muting");
+            mHandler.post(() -> {
+                remoteStream.onMuteVideo(muting);
+            });
         }
 
         if (data.has("audio")) {
-            boolean muted = !data.optBoolean("audio");
-            remoteStream.onMuteAudio(muted);
+            boolean muting = data.optBoolean("muting");
+            mHandler.post(() -> {
+                remoteStream.onMuteAudio(muting);
+            });
         }
 
     }
