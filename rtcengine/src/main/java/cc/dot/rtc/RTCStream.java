@@ -248,11 +248,22 @@ public class RTCStream {
         return mView;
     }
 
-
     public boolean switchCamara() {
-
-
         // todo
+        if (mVideoCapturer instanceof CameraVideoCapturer) {
+            ((CameraVideoCapturer)mVideoCapturer).switchCamera(new CameraVideoCapturer.CameraSwitchHandler(){
+
+                @Override
+                public void onCameraSwitchDone(boolean b) {
+
+                }
+
+                @Override
+                public void onCameraSwitchError(String s) {
+
+                }
+            });
+        }
         return true;
     }
 
@@ -320,7 +331,7 @@ public class RTCStream {
 
         // todo
     }
-    
+
 
     public void setupLocalMedia() {
 
