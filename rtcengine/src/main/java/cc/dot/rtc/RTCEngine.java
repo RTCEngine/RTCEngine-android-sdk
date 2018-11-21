@@ -50,6 +50,7 @@ import io.socket.client.Socket;
 
 
 import io.socket.emitter.Emitter;
+import io.socket.parseqs.ParseQS;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -414,6 +415,9 @@ public class RTCEngine {
         options.reconnectionAttempts = 5;
         options.reconnectionDelay = 1000;
         options.reconnectionDelayMax = 5000;
+        Map<String,String> queryMap = new HashMap<>();
+        queryMap.put("token", authToken.getToken());
+        options.query = ParseQS.encode(queryMap);
 
         try {
             mSocket = IO.socket(socketUrl, options);
@@ -532,7 +536,7 @@ public class RTCEngine {
         if (authToken.getIceTransportPolicy() == "relay") {
             configuration.iceTransportsType = PeerConnection.IceTransportsType.RELAY;
         }
-        
+
 
         MediaConstraints constraints = MediaConstraintUtil.connectionConstraints();
 
