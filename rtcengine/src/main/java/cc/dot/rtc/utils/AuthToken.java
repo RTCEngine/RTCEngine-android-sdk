@@ -23,11 +23,10 @@ public class AuthToken {
     private String room;
     private String token;
     private String app_key;
-
+    private String iceTransportPolicy;
 
 
     private List<PeerConnection.IceServer> iceServers = new ArrayList();
-
 
     public String getUser() {
         return user;
@@ -44,7 +43,6 @@ public class AuthToken {
     public void setRoom(String room) {
         this.room = room;
     }
-
 
     public String getWsUrl() {
         return wsUrl;
@@ -65,6 +63,8 @@ public class AuthToken {
     public List<PeerConnection.IceServer> getIceServers() {
         return iceServers;
     }
+
+    public String getIceTransportPolicy() { return iceTransportPolicy; }
 
 
     public static  AuthToken parseToken(String token) {
@@ -87,6 +87,7 @@ public class AuthToken {
         }
 
         AuthToken auth = new AuthToken();
+        auth.iceServers = new ArrayList<>();
 
         try {
             JSONObject jsonObject = new JSONObject(json);
@@ -94,6 +95,7 @@ public class AuthToken {
             auth.setWsUrl(jsonObject.optString("wsUrl"));
             auth.setUser(jsonObject.optString("user"));
             auth.setAppKey(jsonObject.optString("appkey"));
+            auth.iceTransportPolicy = jsonObject.optString("iceTransportPolicy","");
             auth.setToken(token);
 
             JSONArray iceServerArray = jsonObject.optJSONArray("iceServers");
@@ -123,8 +125,11 @@ public class AuthToken {
 
                 _o = iceServerArray.getJSONObject(i);
 
-                PeerConnection.IceServer server = new PeerConnection.IceServer(_o.getString("url"),
-                        _o.optString("username", ""), _o.optString("credential", ""));
+                PeerConnection.IceServer.Builder builder =  PeerConnection.IceServer.builder(_o.optString("urls"))
+                            .setUsername(_o.optString("username",""))
+                            .setPassword(_o.optString("credential",""));
+
+                PeerConnection.IceServer server = builder.createIceServer();
                 iceServers.add(server);
 
             }
