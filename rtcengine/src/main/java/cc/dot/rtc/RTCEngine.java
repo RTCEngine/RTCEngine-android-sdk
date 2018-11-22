@@ -212,7 +212,7 @@ public class RTCEngine {
 
         PeerConnectionFactory.InitializationOptions options = PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(true)
-                .setFieldTrials(this.getFieldTrials())
+                //.setFieldTrials(this.getFieldTrials())
                 .createInitializationOptions();
 
         PeerConnectionFactory.initialize(options);
@@ -272,7 +272,6 @@ public class RTCEngine {
 
 
         mHandler.post(() -> {
-
             mEngineListener.onRemoveLocalStream(stream);
         });
     }
@@ -289,10 +288,14 @@ public class RTCEngine {
             return false;
         }
 
+        // only leave one time
+        if (closed) {
+            return  false;
+        }
+
         authToken = AuthToken.parseToken(token);
 
         if (authToken == null){
-
             // todo on error code
             return false;
         }
@@ -315,6 +318,7 @@ public class RTCEngine {
 
         this.sendLeave();
 
+        this.close();
 
         return true;
     }
@@ -599,6 +603,7 @@ public class RTCEngine {
             mSocket.disconnect();
         }
 
+
         for (RTCStream stream: localStreams.values()) {
             if (stream.mediaStream != null) {
                 mPeerConnection.removeStream(stream.mediaStream);
@@ -609,12 +614,15 @@ public class RTCEngine {
         }
 
         for (RTCStream stream: remoteStreams.values()) {
+
             mHandler.post(() -> {
                 mEngineListener.onRemoveRemoteStream(stream);
             });
 
             stream.close();
         }
+
+        setStatus(RTCEngineStatus.DisConnected);
 
         localStreams.clear();
         remoteStreams.clear();

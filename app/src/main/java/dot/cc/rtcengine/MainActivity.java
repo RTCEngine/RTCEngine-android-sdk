@@ -30,7 +30,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static String TAG = MainActivity.class.getSimpleName();
 
-    private static String tokenUrl = "http://192.168.15.18:3888/api/generateToken";
+    private static String tokenUrl = "http://192.168.212.28:3888/api/generateToken";
+
     private static String room = "test_room";
     private static String appSecret = "test_secret";
 
@@ -149,7 +150,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void addVideo(String userId, View view) {
 
-        //九宫格布局
         view.setTag(userId);
         for (int i = videoLayout.getChildCount() - 1; i >= 0; i--) {
             View childAt = videoLayout.getChildAt(i);
@@ -176,7 +176,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateFrameLayout() {
 
-        //九宫格布局
         DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
 
         int size = videoLayout.getChildCount();
@@ -276,12 +275,16 @@ public class MainActivity extends AppCompatActivity {
 
             if (status == RTCEngine.RTCEngineStatus.Connected) {
 
+                connected = true;
+
                 rtcEngine.addStream(localStream);
 
                 joinButton.setText("leave");
             }
 
             if (status == RTCEngine.RTCEngineStatus.DisConnected) {
+
+                connected = false;
 
                 joinButton.setText("join");
             }
