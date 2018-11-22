@@ -121,13 +121,19 @@ public class AuthToken {
             JSONArray iceServerArray = data;
 
             for (int i = 0; i < iceServerArray.length(); i++) {
-                JSONObject _o = null;
 
-                _o = iceServerArray.getJSONObject(i);
+                JSONObject iceObject = iceServerArray.getJSONObject(i);
+                JSONArray urls = iceObject.optJSONArray("urls");
+                ArrayList<String> urlsArray = new ArrayList<>();
+                for (int j = 0; j < urls.length(); j++) {
+                    urlsArray.add(urls.optString(j,""));
+                }
+                String username = iceObject.optString("username","");
+                String password = iceObject.optString("credential","");
 
-                PeerConnection.IceServer.Builder builder =  PeerConnection.IceServer.builder(_o.optString("urls"))
-                            .setUsername(_o.optString("username",""))
-                            .setPassword(_o.optString("credential",""));
+                PeerConnection.IceServer.Builder builder =  PeerConnection.IceServer.builder(urlsArray)
+                            .setUsername(username)
+                            .setPassword(password);
 
                 PeerConnection.IceServer server = builder.createIceServer();
                 iceServers.add(server);

@@ -538,8 +538,6 @@ public class RTCEngine {
         }
 
 
-        MediaConstraints constraints = MediaConstraintUtil.connectionConstraints();
-
         final PeerConnection pc = factory.createPeerConnection(configuration, peerConnectionObserver);
 
         MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
