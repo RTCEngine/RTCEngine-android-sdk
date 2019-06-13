@@ -15,12 +15,17 @@ import org.webrtc.Camera2Enumerator;
 import org.webrtc.CameraEnumerator;
 import org.webrtc.CameraVideoCapturer;
 import org.webrtc.CapturerObserver;
+import org.webrtc.DataChannel;
 import org.webrtc.EglBase;
+import org.webrtc.IceCandidate;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
+import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RendererCommon;
+import org.webrtc.RtpReceiver;
 import org.webrtc.RtpSender;
+import org.webrtc.RtpTransceiver;
 import org.webrtc.ScreenCapturerAndroid;
 import org.webrtc.TextureBufferImpl;
 import org.webrtc.VideoCapturer;
@@ -39,7 +44,7 @@ import static android.util.Log.d;
  * Created by xiang on 05/09/2018.
  */
 
-public class RTCStream {
+public class RTCStream implements PeerConnection.Observer {
 
     private static String TAG = RTCStream.class.getSimpleName();
 
@@ -47,6 +52,8 @@ public class RTCStream {
     public static Builder builder(Context context, RTCEngine engine) {
         return new Builder(context, engine);
     }
+
+
 
     public static class Builder {
 
@@ -78,11 +85,6 @@ public class RTCStream {
             return this;
         }
 
-        public Builder setScreenCaptureIntent(Intent intent) {
-            this.screenCaptureIntent = intent;
-            this.video = true;
-            return this;
-        }
 
         public Builder setCapturer(RTCExternalCapturer capturer) {
             this.externalCapturer = capturer;
@@ -124,9 +126,7 @@ public class RTCStream {
 
 
     private Context context;
-    private boolean local;
-    private boolean audio;
-    private boolean video;
+
     private Intent screenCaptureIntent;
     private RTCVideoProfile videoProfile;
     private String mediaStreamId;
@@ -145,14 +145,26 @@ public class RTCStream {
     private VideoCapturer mVideoCapturer;
     private RTCExternalCapturer mExternalCapturer;
 
-    protected RtpSender videoSender;
-    protected RtpSender audioSender;
-
 
 
     private boolean closed;
     private FilterManager filterManager;
     private CapturerObserver capturerObserver;
+
+
+    protected boolean local;
+    protected boolean audio;
+    protected boolean video;
+
+    protected String publisherId;
+
+
+    protected RtpSender videoSender;
+    protected RtpSender audioSender;
+
+    protected RtpTransceiver mVideoTransceiver;
+    protected RtpTransceiver mAudioTransceiver;
+
 
     protected RTCView mView;
     protected RTCStreamListener mListener;
@@ -197,6 +209,12 @@ public class RTCStream {
         this.engine = engine;
         this.audio = audio;
         this.video = video;
+    }
+
+    protected RTCStream(Context context, RTCEngine engine) {
+
+        this.context = context;
+        this.engine = engine;
     }
 
 
@@ -641,6 +659,71 @@ public class RTCStream {
     };
 
 
+
+    @Override
+    public void onSignalingChange(PeerConnection.SignalingState signalingState) {
+
+    }
+
+    @Override
+    public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
+
+    }
+
+    @Override
+    public void onConnectionChange(PeerConnection.PeerConnectionState newState) {
+
+    }
+
+    @Override
+    public void onIceConnectionReceivingChange(boolean b) {
+
+    }
+
+    @Override
+    public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
+
+    }
+
+    @Override
+    public void onIceCandidate(IceCandidate iceCandidate) {
+
+    }
+
+    @Override
+    public void onIceCandidatesRemoved(IceCandidate[] iceCandidates) {
+
+    }
+
+    @Override
+    public void onAddStream(MediaStream mediaStream) {
+
+    }
+
+    @Override
+    public void onRemoveStream(MediaStream mediaStream) {
+
+    }
+
+    @Override
+    public void onDataChannel(DataChannel dataChannel) {
+
+    }
+
+    @Override
+    public void onRenegotiationNeeded() {
+
+    }
+
+    @Override
+    public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
+
+    }
+
+    @Override
+    public void onTrack(RtpTransceiver transceiver) {
+
+    }
 }
 
 

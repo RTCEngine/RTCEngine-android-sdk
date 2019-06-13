@@ -26,6 +26,7 @@ import cc.dot.rtc.RTCView;
 import cc.dot.rtc.utils.PermissionUtils;
 
 
+
 public class MainActivity extends AppCompatActivity {
 
     private static String TAG = MainActivity.class.getSimpleName();
@@ -296,6 +297,8 @@ public class MainActivity extends AppCompatActivity {
             Log.d(TAG, "onReceiveMessage " + message.toString());
         }
     };
+
+
 
 
 }

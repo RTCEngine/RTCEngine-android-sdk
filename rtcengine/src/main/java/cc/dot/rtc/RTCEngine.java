@@ -41,10 +41,9 @@ import java.util.concurrent.Executors;
 
 import cc.dot.rtc.exception.BuilderException;
 import cc.dot.rtc.peer.Peer;
-import cc.dot.rtc.peer.PeerManager;
-import cc.dot.rtc.utils.AuthToken;
 import cc.dot.rtc.utils.MediaConstraintUtil;
 import cc.dot.rtc.utils.SdpObserver;
+import io.socket.client.Ack;
 import io.socket.client.IO;
 import io.socket.client.Socket;
 
@@ -57,6 +56,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
+
 /**
  * Created by xiang on 05/09/2018.
  */
@@ -68,6 +68,7 @@ public class RTCEngine {
 
 
     public enum  RTCEngineStatus {
+        New,
         Connecting,
         Connected,
         DisConnected
@@ -75,13 +76,11 @@ public class RTCEngine {
 
     public static interface RTCEngineListener {
 
-        public void onJoined(String userId);
 
-        public void onLeave(String userId);
+        public void onJoined();
 
 
-//        public void onOccurError(DotEngineErrorType errorCode);
-//        public void onWarning(DotEngineWarnType warnCode);
+        public void onOccurError(int errorCode);
 
 
         public void onAddLocalStream(RTCStream stream);
@@ -101,14 +100,15 @@ public class RTCEngine {
 
         public void onReceiveMessage(JSONObject message);
 
+
+        public void onStreamAdded(RTCStream stream);
+
+
+        public void onStreamRemoved(RTCStream stream);
+
     }
 
 
-    public interface TokenCallback {
-
-        void onSuccess(String token);
-        void onFailure();
-    }
 
 
     public static class Builder {
@@ -117,6 +117,7 @@ public class RTCEngine {
 
         private RTCEngineListener listener;
 
+        private RTCConfig config;
 
         public RTCEngine.Builder setContext(Context context) {
             this.context = context;
@@ -128,16 +129,24 @@ public class RTCEngine {
             return this;
         }
 
+        public RTCEngine.Builder setConfig(RTCConfig config) {
+            this.config = config;
+            return this;
+        }
+
+
         public RTCEngine build() {
             if (context == null) {
-                throw new BuilderException("Must be set Context");
+                throw new BuilderException("context should not be null");
             }
             if (listener == null) {
-                throw new BuilderException("Must be set RTCEngineListener");
+                throw new BuilderException("listener should not be null ");
+            }
+            if (config == null) {
+                throw new BuilderException("config should not be null");
             }
 
             return new RTCEngine(context, listener);
-
         }
 
     }
@@ -164,30 +173,28 @@ public class RTCEngine {
 
     private Socket mSocket;
 
-    private AuthToken authToken;
+    private RTCConfig config;
 
     protected PeerConnectionFactory factory;
 
-    private boolean videoCodecHwAcceleration = false;
+    private boolean videoCodecHwAcceleration = true;
 
     private boolean videoFlexfecEnabled = false;
 
-    private PeerConnection mPeerConnection;
 
     private List<PeerConnection.IceServer> iceServers = new ArrayList();
 
+    private RTCStream localStream = null;
+
     private Map<String, RTCStream> localStreams = new ConcurrentHashMap<>();
     private Map<String, RTCStream> remoteStreams = new ConcurrentHashMap<>();
+
 
     private Map<String, JSONObject>  msAttributes = new HashMap<>();
 
     private boolean closed = false;
 
-    private PeerManager peerManager = new PeerManager();
-
-    // todo  move this to a single place
-    private static final String VIDEO_FLEXFEC_FIELDTRIAL =
-            "WebRTC-FlexFEC-03-Advertised/Enabled/WebRTC-FlexFEC-03/Enabled/";
+    private String mRoom;
 
 
     private Handler mHandler = new Handler(Looper.getMainLooper()) {
@@ -212,7 +219,6 @@ public class RTCEngine {
 
         PeerConnectionFactory.InitializationOptions options = PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(true)
-                //.setFieldTrials(this.getFieldTrials())
                 .createInitializationOptions();
 
         PeerConnectionFactory.initialize(options);
@@ -254,17 +260,17 @@ public class RTCEngine {
 
         localStreams.remove(stream.getStreamId());
 
-        if (mPeerConnection == null) {
-            return;
-        }
-
-        if (stream.audioSender != null) {
-            mPeerConnection.removeTrack(stream.audioSender);
-        }
-
-        if(stream.videoSender != null) {
-            mPeerConnection.removeTrack(stream.videoSender);
-        }
+//        if (mPeerConnection == null) {
+//            return;
+//        }
+//
+//        if (stream.audioSender != null) {
+//            mPeerConnection.removeTrack(stream.audioSender);
+//        }
+//
+//        if(stream.videoSender != null) {
+//            mPeerConnection.removeTrack(stream.videoSender);
+//        }
 
         executor.execute(() -> {
             this.removeStreamInternal(stream);
@@ -277,30 +283,18 @@ public class RTCEngine {
     }
 
 
-    public boolean joinRoom(final String token) {
+    public boolean joinRoom(final String room) {
 
-        if (TextUtils.isEmpty(token)){
-
+        if (TextUtils.isEmpty(room)){
             return false;
         }
 
-        if (mStatus != RTCEngineStatus.DisConnected) {
+
+        if (mStatus == RTCEngineStatus.Connected) {
             return false;
         }
 
-        // only leave one time
-        if (closed) {
-            return  false;
-        }
-
-        authToken = AuthToken.parseToken(token);
-
-        if (authToken == null){
-            // todo on error code
-            return false;
-        }
-
-        iceServers = authToken.getIceServers();
+        mRoom = room;
 
         executor.execute(() -> {
             this.setupSignlingClient();
@@ -324,58 +318,14 @@ public class RTCEngine {
     }
 
 
-    static public void generateToken(String tokenUrl, String appSecret, String room, String user, TokenCallback tokenCallback) {
+    public void publish(RTCStream stream) {
 
-        new AsyncTask<Void, Void, String>() {
+        if (mStatus != RTCEngineStatus.Connected) {
+            return;
+        }
 
-            @Override
-            protected String doInBackground(Void... voids) {
+        localStream = stream;
 
-                OkHttpClient httpClient = new OkHttpClient();
-                MediaType JSON=MediaType.parse("application/json; charset=utf-8");
-
-                try {
-                    JSONObject json = new JSONObject();
-                    json.put("room",room);
-                    json.put("user",user);
-
-                    json.put("secret", appSecret);
-
-                    RequestBody body = RequestBody.create(JSON, json.toString());
-
-                    Request request = new Request.Builder()
-                            .url(tokenUrl)
-                            .post(body)
-                            .build();
-                    Response response = httpClient.newCall(request).execute();
-
-                    JSONObject responseJSON = new JSONObject(response.body().string());
-                    JSONObject dataObject = responseJSON.getJSONObject("d");
-                    if (!dataObject.has("token")) {
-                        return null;
-                    }
-                    return dataObject.getString("token");
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-                return null;
-            }
-
-            @Override
-            protected void onPostExecute(String s) {
-
-                if (tokenCallback == null) {
-                    return;
-                }
-                if (!TextUtils.isEmpty(s)) {
-                    tokenCallback.onSuccess(s);
-                } else {
-                    tokenCallback.onFailure();
-                }
-
-            }
-        }.execute();
 
     }
 
@@ -393,7 +343,7 @@ public class RTCEngine {
         final VideoDecoderFactory decoderFactory;
 
         if (videoCodecHwAcceleration) {
-            encoderFactory = new DefaultVideoEncoderFactory(rootEglBase.getEglBaseContext(),false,true);
+            encoderFactory = new DefaultVideoEncoderFactory(rootEglBase.getEglBaseContext(),true,false);
             decoderFactory = new DefaultVideoDecoderFactory(rootEglBase.getEglBaseContext());
         } else {
             encoderFactory = new SoftwareVideoEncoderFactory();
@@ -408,19 +358,35 @@ public class RTCEngine {
                 .createPeerConnectionFactory();
 
         adm.release();
+    }
+
+
+    private PeerConnection createPeerConnection(PeerConnection.Observer observer) {
+
+
+        PeerConnection.RTCConfiguration configuration = new PeerConnection.RTCConfiguration(iceServers);
+
+        configuration.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
+        configuration.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
+        configuration.iceTransportsType = PeerConnection.IceTransportsType.ALL;
+        configuration.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
+
+        final PeerConnection pc = factory.createPeerConnection(configuration, observer);
+
+        return pc;
 
     }
 
     private void setupSignlingClient(){
 
-        String socketUrl = authToken.getWsUrl();
+        String socketUrl = config.getSignallingServer();
         IO.Options options = new IO.Options();
         options.reconnection = true;
         options.reconnectionAttempts = 5;
         options.reconnectionDelay = 1000;
         options.reconnectionDelayMax = 5000;
         Map<String,String> queryMap = new HashMap<>();
-        queryMap.put("token", authToken.getToken());
+        queryMap.put("room", mRoom);
         options.query = ParseQS.encode(queryMap);
 
         try {
@@ -461,47 +427,22 @@ public class RTCEngine {
             }
         });
 
-        mSocket.on("joined", new Emitter.Listener() {
+
+        mSocket.on("streamadded", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-                JSONObject data = (JSONObject) args[0];
-                handleJoined(data);
+
             }
         });
 
-        mSocket.on("offer", new Emitter.Listener() {
+        mSocket.on("streamremoved", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-                JSONObject data = (JSONObject) args[0];
-                handleOffer(data);
-            }
-        });
 
-
-        mSocket.on("peerRemoved", new Emitter.Listener() {
-            @Override
-            public void call(Object... args) {
-                JSONObject data = (JSONObject) args[0];
-                handlePeerRemoved(data);
             }
         });
 
 
-        mSocket.on("peerConnected", new Emitter.Listener() {
-            @Override
-            public void call(Object... args) {
-                JSONObject data = (JSONObject) args[0];
-                handlePeerConnected(data);
-            }
-        });
-
-        mSocket.on("streamAdded", new Emitter.Listener() {
-            @Override
-            public void call(Object... args) {
-                JSONObject data = (JSONObject) args[0];
-                handleStreamAdded(data);
-            }
-        });
 
 
         mSocket.on("configure", new Emitter.Listener() {
@@ -531,52 +472,69 @@ public class RTCEngine {
 
     private void join() {
 
-        PeerConnection.RTCConfiguration configuration = new PeerConnection.RTCConfiguration(authToken.getIceServers());
-        configuration.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
-        configuration.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
-        configuration.iceTransportsType = PeerConnection.IceTransportsType.ALL;
-        configuration.sdpSemantics = PeerConnection.SdpSemantics.PLAN_B;  // PLAN_B for now
+//        PeerConnection.RTCConfiguration configuration = new PeerConnection.RTCConfiguration(authToken.getIceServers());
+//        configuration.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
+//        configuration.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
+//        configuration.iceTransportsType = PeerConnection.IceTransportsType.ALL;
+//        configuration.sdpSemantics = PeerConnection.SdpSemantics.PLAN_B;  // PLAN_B for now
+//
+//        if (authToken.getIceTransportPolicy() == "relay") {
+//            configuration.iceTransportsType = PeerConnection.IceTransportsType.RELAY;
+//        }
+//
+//
+//        final PeerConnection pc = factory.createPeerConnection(configuration, peerConnectionObserver);
 
-        if (authToken.getIceTransportPolicy() == "relay") {
-            configuration.iceTransportsType = PeerConnection.IceTransportsType.RELAY;
+//        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
+//
+//        pc.createOffer(new SdpObserver() {
+//            @Override
+//            public void onCreateSuccess(SessionDescription sessionDescription) {
+//
+//                mPeerConnection.setLocalDescription(this,sessionDescription);
+//
+//                JSONObject object = new JSONObject();
+//
+//                try {
+//                    object.put("appkey","appkey");
+//                    object.put("room", authToken.getRoom());
+//                    object.put("user", authToken.getUser());
+//                    object.put("token",authToken.getToken());
+//                    object.put("planb", true);
+//                    object.put("sdp", sessionDescription.description);
+//                } catch (JSONException e) {
+//                    e.printStackTrace();
+//                }
+//
+//                mSocket.emit("join", object);
+//            }
+//
+//            @Override
+//            public void onSetSuccess() {
+//
+//            }
+//        }, offerConstraints);
+//
+//
+//        mPeerConnection = pc;
+
+
+        JSONObject data = new JSONObject();
+
+        try {
+            data.put("room",mRoom);
+        } catch (JSONException e) {
+            e.printStackTrace();
         }
 
 
-        final PeerConnection pc = factory.createPeerConnection(configuration, peerConnectionObserver);
-
-        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
-
-        pc.createOffer(new SdpObserver() {
+        mSocket.emit("join",new Object[]{data}, new Ack() {
             @Override
-            public void onCreateSuccess(SessionDescription sessionDescription) {
-
-                mPeerConnection.setLocalDescription(this,sessionDescription);
-
-                JSONObject object = new JSONObject();
-
-                try {
-                    object.put("appkey","appkey");
-                    object.put("room", authToken.getRoom());
-                    object.put("user", authToken.getUser());
-                    object.put("token",authToken.getToken());
-                    object.put("planb", true);
-                    object.put("sdp", sessionDescription.description);
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
-
-                mSocket.emit("join", object);
+            public void call(Object... args) {
+                JSONObject obj = (JSONObject)args[0];
+                handleJoined(obj);
             }
-
-            @Override
-            public void onSetSuccess() {
-
-            }
-        }, offerConstraints);
-
-
-        mPeerConnection = pc;
-
+        });
     }
 
 
@@ -760,41 +718,34 @@ public class RTCEngine {
     private void handleJoined(JSONObject data) {
 
         JSONObject room  = data.optJSONObject("room");
-        JSONArray peers = room.optJSONArray("peers");
-
-        if (peers == null) {
-            Log.e(TAG, "message does not have peers");
-            return;
-        }
-
-        // refactor this
-        for (int i = 0; i < peers.length(); i++) {
-            try {
-                JSONObject object = peers.getJSONObject(i);
-                peerManager.updatePeer(object);
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-        }
-
-        String answerStr = data.optString("sdp");
-
-        SessionDescription answer = new SessionDescription(SessionDescription.Type.ANSWER, answerStr);
-
-        mPeerConnection.setRemoteDescription(new cc.dot.rtc.utils.SdpObserver() {
-            @Override
-            public void onCreateSuccess(SessionDescription sessionDescription) {
-
-            }
-
-            @Override
-            public void onSetSuccess() {
-
-            }
-        }, answer);
+        JSONArray streams = room.optJSONArray("streams");
 
 
         setStatus(RTCEngineStatus.Connected);
+
+        mHandler.post(() -> {
+            mEngineListener.onJoined();
+        });
+
+
+        for (int i = 0; i < streams.length(); i++) {
+            String publisherId;
+            try {
+                JSONObject streamObj = streams.getJSONObject(i);
+                Log.d(TAG, streamObj.toString());
+                publisherId = streamObj.getString("publisherId");
+            } catch (JSONException e) {
+                e.printStackTrace();
+                continue;
+            }
+
+            RTCStream stream = createRemoteStream(publisherId);
+
+            mHandler.post(() -> {
+                mEngineListener.onStreamAdded(stream);
+            });
+
+        }
 
     }
 
@@ -942,15 +893,7 @@ public class RTCEngine {
 
 
 
-    private String getFieldTrials() {
-        String fieldTrials = "";
-        if (videoFlexfecEnabled) {
-            fieldTrials += VIDEO_FLEXFEC_FIELDTRIAL;
-            Log.d(TAG, "Enable FlexFEC field trial.");
-        }
-        // other fieldTrails
-        return fieldTrials;
-    }
+
 
 
     protected void addTask(Runnable task) {
@@ -974,6 +917,18 @@ public class RTCEngine {
     }
 
 
+    private RTCStream createRemoteStream(String publisherId) {
+
+
+        RTCStream stream = new RTCStream(RTCEngine.this.mContext, RTCEngine.this);
+        stream.audio = false;
+        stream.video = false;
+        stream.local = false;
+
+        stream.publisherId = publisherId;
+
+        return stream;
+    }
 
     private PeerConnection.Observer peerConnectionObserver = new PeerConnection.Observer() {
         @Override
