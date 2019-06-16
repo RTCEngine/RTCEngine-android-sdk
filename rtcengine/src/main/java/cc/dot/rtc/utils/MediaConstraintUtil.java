@@ -19,8 +19,6 @@ public class MediaConstraintUtil {
 
     public static MediaConstraints offerConstraints() {
         MediaConstraints constraints = new MediaConstraints();
-        constraints.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"));
-        constraints.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"));
 
         return constraints;
     }
@@ -28,9 +26,6 @@ public class MediaConstraintUtil {
 
     public static MediaConstraints answerConstraints() {
         MediaConstraints constraints = new MediaConstraints();
-        constraints.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"));
-        constraints.mandatory.add(new MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"));
-
         return constraints;
     }
 

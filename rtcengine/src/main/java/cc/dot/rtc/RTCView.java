@@ -32,7 +32,6 @@ public class RTCView extends ViewGroup{
     public interface RTCViewListener {
 
         void onFirstFrameRendered();
-
         void onFrameResolutionChanged(int videoWidth, int videoHeight, int rotation);
 
     }
@@ -169,9 +168,8 @@ public class RTCView extends ViewGroup{
     }
 
 
-    private void onFrameResolutionChanged(
-            int videoWidth, int videoHeight,
-            int rotation) {
+    private void onFrameResolutionChanged(int videoWidth, int videoHeight, int rotation) {
+
         boolean changed = false;
 
         synchronized (layoutSyncRoot) {
@@ -344,22 +342,7 @@ public class RTCView extends ViewGroup{
     }
 
 
-    protected void setStream(MediaStream mediaStream) {
-        VideoTrack videoTrack;
-
-        if (mediaStream == null) {
-            videoTrack = null;
-        } else {
-            List<VideoTrack> videoTracks = mediaStream.videoTracks;
-
-            videoTrack = videoTracks.isEmpty() ? null : videoTracks.get(0);
-        }
-
-        setVideoTrack(videoTrack);
-    }
-
-
-    private void setVideoTrack(VideoTrack videoTrack) {
+    protected void setVideoTrack(VideoTrack videoTrack) {
         VideoTrack oldValue = this.videoTrack;
 
         if (oldValue != videoTrack) {

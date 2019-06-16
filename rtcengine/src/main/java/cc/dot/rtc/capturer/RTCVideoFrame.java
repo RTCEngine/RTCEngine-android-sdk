@@ -6,7 +6,7 @@ package cc.dot.rtc.capturer;
 
 public class RTCVideoFrame {
 
-    public enum VideoFrameType { NV21_TYPE, I420_TYPE, ARGB_TYPE, RGBA_TYPE };
+    public enum VideoFrameType { NV21_TYPE, I420_TYPE };
 
     public final byte[] bytesArray;
     public final int width;

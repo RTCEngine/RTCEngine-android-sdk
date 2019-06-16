@@ -11,16 +11,19 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.webrtc.DataChannel;
+
 import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaConstraints;
-import org.webrtc.MediaStream;
+
+import org.webrtc.MediaStreamTrack;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
-import org.webrtc.RtpReceiver;
+import org.webrtc.RtpTransceiver;
+import org.webrtc.RtpTransceiver.RtpTransceiverInit;
+import org.webrtc.RtpTransceiver.RtpTransceiverDirection;
 import org.webrtc.SessionDescription;
 import org.webrtc.SoftwareVideoDecoderFactory;
 import org.webrtc.SoftwareVideoEncoderFactory;
@@ -32,6 +35,7 @@ import org.webrtc.audio.JavaAudioDeviceModule;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,11 +54,8 @@ import io.socket.client.Socket;
 
 import io.socket.emitter.Emitter;
 import io.socket.parseqs.ParseQS;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
+
+
 
 
 /**
@@ -83,18 +84,6 @@ public class RTCEngine {
         public void onOccurError(int errorCode);
 
 
-        public void onAddLocalStream(RTCStream stream);
-
-
-        public void onRemoveLocalStream(RTCStream stream);
-
-
-        public void onAddRemoteStream(RTCStream stream);
-
-
-        public void onRemoveRemoteStream(RTCStream stream);
-
-
         public void onStateChange(RTCEngineStatus status);
 
 
@@ -106,6 +95,17 @@ public class RTCEngine {
 
         public void onStreamRemoved(RTCStream stream);
 
+
+        public void onLocalStreamPublished(RTCStream stream);
+
+
+        public void onLocalStreamUnpublished(RTCStream stream);
+
+
+        public void onStreamSubscribed(RTCStream stream);
+
+
+        public void onStreamUnsubscribed(RTCStream stream);
     }
 
 
@@ -177,18 +177,17 @@ public class RTCEngine {
 
     protected PeerConnectionFactory factory;
 
+    protected AudioDeviceModule audioDeviceModule;
+
     private boolean videoCodecHwAcceleration = true;
 
-    private boolean videoFlexfecEnabled = false;
 
 
     private List<PeerConnection.IceServer> iceServers = new ArrayList();
 
     private RTCStream localStream = null;
 
-    private Map<String, RTCStream> localStreams = new ConcurrentHashMap<>();
     private Map<String, RTCStream> remoteStreams = new ConcurrentHashMap<>();
-
 
     private Map<String, JSONObject>  msAttributes = new HashMap<>();
 
@@ -206,16 +205,12 @@ public class RTCEngine {
     };
 
 
-
     private RTCEngine(Context context, RTCEngineListener listener) {
-
-
 
         mContext = context;
         mEngineListener = listener;
 
         rootEglBase = EglBase.create();
-
 
         PeerConnectionFactory.InitializationOptions options = PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(true)
@@ -224,62 +219,6 @@ public class RTCEngine {
         PeerConnectionFactory.initialize(options);
 
         createPeerConnectionFactory();
-
-
-    }
-
-
-
-    public void addStream(final RTCStream stream) {
-
-        if (mStatus != RTCEngineStatus.Connected) {
-            return;
-        }
-
-        if (localStreams.get(stream.getStreamId()) != null) {
-            Log.e(TAG, "stream alread in");
-            return;
-        }
-
-        this.executor.execute(() -> {
-            this.addStreamInternal(stream);
-        });
-
-    }
-
-
-    public void removeStream(final RTCStream stream) {
-
-        if (mStatus != RTCEngineStatus.Connected) {
-            return;
-        }
-
-        if (localStreams.get(stream.getStreamId()) == null) {
-            return;
-        }
-
-        localStreams.remove(stream.getStreamId());
-
-//        if (mPeerConnection == null) {
-//            return;
-//        }
-//
-//        if (stream.audioSender != null) {
-//            mPeerConnection.removeTrack(stream.audioSender);
-//        }
-//
-//        if(stream.videoSender != null) {
-//            mPeerConnection.removeTrack(stream.videoSender);
-//        }
-
-        executor.execute(() -> {
-            this.removeStreamInternal(stream);
-        });
-
-
-        mHandler.post(() -> {
-            mEngineListener.onRemoveLocalStream(stream);
-        });
     }
 
 
@@ -326,7 +265,81 @@ public class RTCEngine {
 
         localStream = stream;
 
+        PeerConnection peerConnection = createPeerConnection(stream);
 
+        localStream.peerConnection = peerConnection;
+        ArrayList<String> streamIds = new ArrayList<String>();
+        streamIds.add(stream.getStreamId());
+        RtpTransceiverInit transceiverInit = new RtpTransceiverInit(RtpTransceiverDirection.SEND_ONLY, streamIds);
+
+        if (stream.mAudioTrack != null) {
+            stream.mAudioTransceiver = peerConnection.addTransceiver(stream.mAudioTrack, transceiverInit);
+        } else {
+            stream.mAudioTransceiver = peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, transceiverInit);
+        }
+
+        if (stream.mVideoTrack != null) {
+            stream.mVideoTransceiver = peerConnection.addTransceiver(stream.mVideoTrack,transceiverInit);
+        } else {
+            stream.mVideoTransceiver = peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, transceiverInit);
+        }
+
+        publishInternal(stream);
+    }
+
+
+
+    public void unpublish(RTCStream stream) {
+
+        if (stream.mediaStreamId.equalsIgnoreCase(localStream.mediaStreamId)) {
+
+            if (stream.mVideoTransceiver != null) {
+                stream.peerConnection.removeTrack(stream.mVideoTransceiver.getSender());
+            }
+
+            if (stream.mAudioTransceiver != null) {
+                stream.peerConnection.removeTrack(stream.mAudioTransceiver.getSender());
+            }
+
+            unpublishInternal(stream);
+        }
+    }
+
+
+    public void subscribe(RTCStream stream) {
+
+        if (remoteStreams.get(stream.publisherId) != null) {
+            return;
+        }
+
+        remoteStreams.put(stream.publisherId, stream);
+
+        PeerConnection peerConnection = createPeerConnection(stream);
+
+        stream.peerConnection = peerConnection;
+
+        RtpTransceiverInit transceiverInit = new RtpTransceiverInit(RtpTransceiverDirection.RECV_ONLY);
+
+        peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,transceiverInit);
+        peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, transceiverInit);
+
+
+        subscribeInternal(stream);
+    }
+
+
+    public void unsubscribe(RTCStream stream) {
+
+        if (remoteStreams.get(stream.publisherId) == null){
+            Log.e(TAG, "unsubscribe empty stream");
+            return;
+        }
+
+        unsubscribeInternal(stream);
+
+        remoteStreams.remove(stream.publisherId);
+
+        stream.close();
     }
 
 
@@ -337,7 +350,7 @@ public class RTCEngine {
             return;
         }
 
-        final AudioDeviceModule adm = JavaAudioDeviceModule.builder(mContext).createAudioDeviceModule();
+        audioDeviceModule = JavaAudioDeviceModule.builder(mContext).createAudioDeviceModule();
 
         final VideoEncoderFactory encoderFactory;
         final VideoDecoderFactory decoderFactory;
@@ -352,12 +365,11 @@ public class RTCEngine {
 
         factory = PeerConnectionFactory.builder()
                 .setOptions(new PeerConnectionFactory.Options())
-                .setAudioDeviceModule(adm)
+                .setAudioDeviceModule(audioDeviceModule)
                 .setVideoEncoderFactory(encoderFactory)
                 .setVideoDecoderFactory(decoderFactory)
                 .createPeerConnectionFactory();
 
-        adm.release();
     }
 
 
@@ -371,10 +383,9 @@ public class RTCEngine {
         configuration.iceTransportsType = PeerConnection.IceTransportsType.ALL;
         configuration.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
 
-        final PeerConnection pc = factory.createPeerConnection(configuration, observer);
+        final PeerConnection peerConnection = factory.createPeerConnection(configuration, observer);
 
-        return pc;
-
+        return peerConnection;
     }
 
     private void setupSignlingClient(){
@@ -432,6 +443,8 @@ public class RTCEngine {
             @Override
             public void call(Object... args) {
 
+                JSONObject obj = (JSONObject)args[0];
+                handleStreamAdded(obj);
             }
         });
 
@@ -439,6 +452,8 @@ public class RTCEngine {
             @Override
             public void call(Object... args) {
 
+                JSONObject obj = (JSONObject)args[0];
+                handleStreamRemoved(obj);
             }
         });
 
@@ -472,53 +487,6 @@ public class RTCEngine {
 
     private void join() {
 
-//        PeerConnection.RTCConfiguration configuration = new PeerConnection.RTCConfiguration(authToken.getIceServers());
-//        configuration.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
-//        configuration.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
-//        configuration.iceTransportsType = PeerConnection.IceTransportsType.ALL;
-//        configuration.sdpSemantics = PeerConnection.SdpSemantics.PLAN_B;  // PLAN_B for now
-//
-//        if (authToken.getIceTransportPolicy() == "relay") {
-//            configuration.iceTransportsType = PeerConnection.IceTransportsType.RELAY;
-//        }
-//
-//
-//        final PeerConnection pc = factory.createPeerConnection(configuration, peerConnectionObserver);
-
-//        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
-//
-//        pc.createOffer(new SdpObserver() {
-//            @Override
-//            public void onCreateSuccess(SessionDescription sessionDescription) {
-//
-//                mPeerConnection.setLocalDescription(this,sessionDescription);
-//
-//                JSONObject object = new JSONObject();
-//
-//                try {
-//                    object.put("appkey","appkey");
-//                    object.put("room", authToken.getRoom());
-//                    object.put("user", authToken.getUser());
-//                    object.put("token",authToken.getToken());
-//                    object.put("planb", true);
-//                    object.put("sdp", sessionDescription.description);
-//                } catch (JSONException e) {
-//                    e.printStackTrace();
-//                }
-//
-//                mSocket.emit("join", object);
-//            }
-//
-//            @Override
-//            public void onSetSuccess() {
-//
-//            }
-//        }, offerConstraints);
-//
-//
-//        mPeerConnection = pc;
-
-
         JSONObject data = new JSONObject();
 
         try {
@@ -526,7 +494,6 @@ public class RTCEngine {
         } catch (JSONException e) {
             e.printStackTrace();
         }
-
 
         mSocket.emit("join",new Object[]{data}, new Ack() {
             @Override
@@ -561,158 +528,23 @@ public class RTCEngine {
             mSocket.disconnect();
         }
 
-
-        for (RTCStream stream: localStreams.values()) {
-            if (stream.mediaStream != null) {
-                mPeerConnection.removeStream(stream.mediaStream);
-            }
-            mHandler.post(() -> {
-                mEngineListener.onRemoveLocalStream(stream);
-            });
+        if (localStream != null) {
+            localStream.close();
         }
 
-        for (RTCStream stream: remoteStreams.values()) {
-
-            mHandler.post(() -> {
-                mEngineListener.onRemoveRemoteStream(stream);
-            });
-
+        for (RTCStream stream: remoteStreams.values()){
             stream.close();
         }
 
-        setStatus(RTCEngineStatus.DisConnected);
-
-        localStreams.clear();
+        localStream = null;
         remoteStreams.clear();
 
-        peerManager.clearAll();
+        factory.dispose();
+        factory = null;
 
-        if (mPeerConnection != null) {
-            mPeerConnection.dispose();
-        }
+        audioDeviceModule.release();
     }
 
-
-    private void  addStreamInternal(RTCStream stream) {
-
-        stream.setupLocalMedia();
-
-        localStreams.put(stream.getStreamId(), stream);
-
-        if (stream.mAudioTrack != null) {
-            stream.audioSender = mPeerConnection.addTrack(stream.mAudioTrack,
-                    Arrays.asList(stream.getStreamId()));
-        }
-
-        if (stream.mVideoTrack != null) {
-            stream.videoSender = mPeerConnection.addTrack(stream.mVideoTrack,
-                    Arrays.asList(stream.getStreamId()));
-        }
-
-        stream.setPeerId(authToken.getUser());
-
-        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
-
-        // the SdpObserver is a little ugly, but it works
-        mPeerConnection.createOffer(new SdpObserver() {
-            @Override
-            public void onCreateSuccess(SessionDescription sessionDescription) {
-
-                mPeerConnection.setLocalDescription(new SdpObserver(){
-
-                    @Override
-                    public void onCreateSuccess(SessionDescription sessionDescription) {
-                    }
-
-                    @Override
-                    public void onSetSuccess() {
-
-                        mPeerConnection.setRemoteDescription(new SdpObserver() {
-                            @Override
-                            public void onCreateSuccess(SessionDescription sessionDescription) {
-                            }
-
-                            @Override
-                            public void onSetSuccess() {
-                            }
-
-                        }, mPeerConnection.getRemoteDescription());
-                    }
-
-                }, sessionDescription);
-
-
-                JSONObject object = new JSONObject();
-
-                try {
-                    object.put("stream", stream.dumps());
-                    object.put("sdp", sessionDescription.description);
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
-
-                mSocket.emit("addStream", object);
-            }
-
-            @Override
-            public void onSetSuccess() {
-
-            }
-
-        }, offerConstraints);
-
-    }
-
-
-    private void removeStreamInternal(RTCStream stream) {
-
-        MediaConstraints offerConstraints = MediaConstraintUtil.offerConstraints();
-
-        mPeerConnection.createOffer(new SdpObserver() {
-            @Override
-            public void onCreateSuccess(SessionDescription sessionDescription) {
-
-                mPeerConnection.setLocalDescription(new SdpObserver() {
-                    @Override
-                    public void onCreateSuccess(SessionDescription sessionDescription) {}
-
-                    @Override
-                    public void onSetSuccess() {
-
-                        mPeerConnection.setRemoteDescription(new SdpObserver() {
-                            @Override
-                            public void onCreateSuccess(SessionDescription sessionDescription) {
-
-                            }
-
-                            @Override
-                            public void onSetSuccess() {
-
-                            }
-                        }, mPeerConnection.getRemoteDescription());
-
-
-                        JSONObject data = new JSONObject();
-
-                        try {
-                            data.put("stream", stream.dumps());
-                            data.put("sdp", sessionDescription.description);
-                        } catch (JSONException e) {
-                            e.printStackTrace();
-                        }
-
-                        mSocket.emit("removeStream", data);
-                    }
-
-                }, sessionDescription);
-            }
-
-            @Override
-            public void onSetSuccess() {
-            }
-
-        }, offerConstraints);
-    }
 
 
     private void handleJoined(JSONObject data) {
@@ -750,115 +582,86 @@ public class RTCEngine {
     }
 
 
-    private void handleOffer(JSONObject data) {
+    private void  handlePublishStream(RTCStream stream, JSONObject data) {
 
+        String sdp = data.optString("sdp");
 
-        JSONObject room  = data.optJSONObject("room");
-        JSONArray peers = room.optJSONArray("peers");
+        SessionDescription answer = new SessionDescription(SessionDescription.Type.ANSWER, sdp);
 
-        if (peers == null) {
-            Log.e(TAG, "message does not have peers");
-            return;
-        }
-
-        // refactor this
-        for (int i = 0; i < peers.length(); i++) {
-            try {
-                JSONObject object = peers.getJSONObject(i);
-                peerManager.updatePeer(object);
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-        }
-
-
-        String offerStr = data.optString("sdp");
-        SessionDescription offer = new SessionDescription(SessionDescription.Type.OFFER, offerStr);
-
-        // This is ugly code, make this look better
-        mPeerConnection.setRemoteDescription(new cc.dot.rtc.utils.SdpObserver() {
+        stream.peerConnection.setRemoteDescription(new SdpObserver() {
             @Override
-            public void onCreateSuccess(SessionDescription sessionDescription) {}
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+            }
+
+            @Override
+            public void onSetSuccess() {
+                mHandler.post(() -> {
+                    mEngineListener.onLocalStreamPublished(stream);
+                });
+            }
+
+        }, answer);
+
+    }
+
+
+    private void handleSubscribeStream(RTCStream stream, JSONObject data) {
+
+        JSONObject streamobj = data.optJSONObject("stream");
+        String sdp = data.optString("sdp");
+
+        SessionDescription answer = new SessionDescription(SessionDescription.Type.ANSWER, sdp);
+
+        stream.peerConnection.setRemoteDescription(new SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+            }
 
             @Override
             public void onSetSuccess() {
 
-                MediaConstraints constrainst = MediaConstraintUtil.answerConstraints();
-
-                mPeerConnection.createAnswer(new cc.dot.rtc.utils.SdpObserver() {
-                    @Override
-                    public void onCreateSuccess(SessionDescription sessionDescription) {
-
-                        mPeerConnection.setLocalDescription(new cc.dot.rtc.utils.SdpObserver() {
-                            @Override
-                            public void onCreateSuccess(SessionDescription sessionDescription) {
-
-                                Log.d(TAG, "onCreateSuccess");
-                            }
-                            @Override
-                            public void onSetSuccess() {
-                            }
-                        }, sessionDescription);
-
-                    }
-
-                    @Override
-                    public void onSetSuccess() {}
-                }, constrainst);
-
+                mHandler.post(() -> {
+                   mEngineListener.onStreamSubscribed(stream);
+                });
             }
-
-        }, offer);
-    }
-
-
-    private void handlePeerRemoved(JSONObject data) {
-
-        JSONObject peer  = data.optJSONObject("peer");
-        String peerId = peer.optString("id");
-
-        if (TextUtils.isEmpty(peerId)) {
-            return;
-        }
-
-        mHandler.post(() -> {
-            mEngineListener.onLeave(peerId);
-        });
-    }
-
-    private void handlePeerConnected(JSONObject data) {
-
-        JSONObject peer  = data.optJSONObject("peer");
-        String peerId = peer.optString("id");
-
-        if (TextUtils.isEmpty(peerId)) {
-            return;
-        }
-
-        mHandler.post(() -> {
-            mEngineListener.onJoined(peerId);
-        });
-
+        }, answer);
     }
 
 
     private void handleStreamAdded(JSONObject data) {
 
-        String streamId  = data.optString("msid");
+        JSONObject streamobj = data.optJSONObject("stream");
 
-        if (TextUtils.isEmpty(streamId)) {
+        String publisherId = streamobj.optString("publisherid");
+
+        RTCStream stream = createRemoteStream(publisherId);
+
+        mHandler.post(() -> {
+            mEngineListener.onStreamAdded(stream);
+        });
+    }
+
+    private void handleStreamRemoved(JSONObject data) {
+
+        JSONObject streamobj = data.optJSONObject("stream");
+
+        String publisherId = streamobj.optString("publisherid");
+
+        RTCStream remoteStream = remoteStreams.get(publisherId);
+
+        if (remoteStream == null) {
             return;
         }
 
-        RTCStream localStream = localStreams.get(streamId);
+        remoteStreams.remove(publisherId);
 
         mHandler.post(() -> {
-
-            mEngineListener.onAddLocalStream(localStream);
+            mEngineListener.onStreamRemoved(remoteStream);
         });
 
     }
-
 
     private void handleConfigure(JSONObject data) {
 
@@ -894,12 +697,158 @@ public class RTCEngine {
 
 
 
-
-
     protected void addTask(Runnable task) {
         executor.execute(task);
     }
 
+
+
+    private void publishInternal(RTCStream stream) {
+
+        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
+
+        stream.peerConnection.createOffer(new SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                stream.peerConnection.setLocalDescription(new SdpObserver() {
+                    @Override
+                    public void onCreateSuccess(SessionDescription sessionDescription) {}
+
+                    @Override
+                    public void onSetSuccess() {
+
+                        JSONObject data = new JSONObject();
+                        JSONObject streamobj = new JSONObject();
+
+
+                        try {
+                            streamobj.put("publisherId", stream.mediaStreamId);
+                            data.put("sdp", sessionDescription.description);
+                            data.put("stream", streamobj);
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+
+                        mSocket.emit("publish", new Object[]{data}, new Ack() {
+                            @Override
+                            public void call(Object... args) {
+                                JSONObject obj = (JSONObject)args[0];
+                                handlePublishStream(stream,obj);
+                            }
+                        });
+
+                    }
+                }, sessionDescription);
+            }
+
+            @Override
+            public void onSetSuccess() {
+
+            }
+        }, offerConstraints);
+
+    }
+
+
+
+    private void unpublishInternal(RTCStream stream) {
+
+        JSONObject dataobj = new JSONObject();
+        JSONObject streamobj = new JSONObject();
+
+
+        try {
+            streamobj.put("publisherId", stream.mediaStreamId);
+            dataobj.put("stream", streamobj);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        mSocket.emit("unpublish", new Object[]{dataobj}, new Ack() {
+            @Override
+            public void call(Object... args) {
+
+                mHandler.post(() -> {
+                   mEngineListener.onLocalStreamUnpublished(stream);
+                });
+            }
+        });
+    }
+
+
+    private void subscribeInternal(RTCStream stream) {
+
+        MediaConstraints offerConstraints =  MediaConstraintUtil.offerConstraints();
+
+        stream.peerConnection.createOffer(new SdpObserver() {
+            @Override
+            public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                stream.peerConnection.setLocalDescription(new SdpObserver() {
+                    @Override
+                    public void onCreateSuccess(SessionDescription sessionDescription) {
+
+                    }
+
+                    @Override
+                    public void onSetSuccess() {
+
+                        JSONObject data = new JSONObject();
+                        JSONObject streamobj = new JSONObject();
+
+                        try {
+                            streamobj.put("publisherId", stream.publisherId);
+                            data.put("stream", streamobj);
+                            data.put("sdp", sessionDescription.description);
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+
+                        mSocket.emit("subscribe", new Object[]{data}, new Ack() {
+                            @Override
+                            public void call(Object... args) {
+
+                                JSONObject obj = (JSONObject)args[0];
+                                handleSubscribeStream(stream, obj);
+                            }
+                        });
+
+                    }
+                }, sessionDescription);
+            }
+
+            @Override
+            public void onSetSuccess() {
+
+            }
+        }, offerConstraints);
+
+    }
+
+
+    private void unsubscribeInternal(RTCStream stream) {
+
+        JSONObject data = new JSONObject();
+        JSONObject streamobj = new JSONObject();
+
+        try {
+            streamobj.put("publisherId", stream.publisherId);
+            streamobj.put("subscriberId", stream.mediaStreamId);
+            data.put("stream", streamobj);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        mSocket.emit("unsubscribe", new Object[]{data}, new Ack() {
+            @Override
+            public void call(Object... args) {
+                mHandler.post(() -> {
+                    mEngineListener.onStreamUnsubscribed(stream);
+                });
+            }
+        });
+    }
 
 
     private void setStatus(RTCEngineStatus status) {
@@ -911,7 +860,6 @@ public class RTCEngine {
         mStatus = status;
 
         mHandler.post(() -> {
-
             mEngineListener.onStateChange(mStatus);
         });
     }
@@ -930,148 +878,6 @@ public class RTCEngine {
         return stream;
     }
 
-    private PeerConnection.Observer peerConnectionObserver = new PeerConnection.Observer() {
-        @Override
-        public void onSignalingChange(PeerConnection.SignalingState signalingState) {
 
-        }
-
-        @Override
-        public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
-
-            String state = stringForIceState(iceConnectionState);
-
-            Log.d(TAG, "onIceConnectionChange: " + state);
-
-        }
-
-        @Override
-        public void onIceConnectionReceivingChange(boolean b) {
-
-        }
-
-        @Override
-        public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
-
-            Log.d(TAG, "onIceGatheringChange");
-        }
-
-        @Override
-        public void onIceCandidate(IceCandidate iceCandidate) {
-
-            Log.d(TAG, "onIceCandidate " + iceCandidate.sdp);
-        }
-
-        @Override
-        public void onIceCandidatesRemoved(IceCandidate[] iceCandidates) {
-
-        }
-
-        @Override
-        public void onAddStream(MediaStream mediaStream) {
-
-            String streamId = mediaStream.getId();
-
-            Peer peer = peerManager.peerForStream(streamId);
-
-            if (peer == null) {
-                Log.e(TAG, "onAddStream but can not find peer");
-                return;
-            }
-
-            boolean audio = mediaStream.audioTracks.size() > 0;
-            boolean video = mediaStream.videoTracks.size() > 0;
-
-            RTCStream stream = new RTCStream(RTCEngine.this.mContext, peer.getId(), streamId, audio, video, mediaStream, RTCEngine.this);
-
-            for (JSONObject streamObj: peer.getStreams()) {
-                String _streamId = streamObj.optString("id", "");
-                if (_streamId.equalsIgnoreCase(streamId)) {
-                    JSONObject attributes = streamObj.optJSONObject("attributes");
-                    stream.attributes = attributes;
-                }
-            }
-
-            remoteStreams.put(streamId, stream);
-
-            // init view here
-            mHandler.post(() -> {
-                RTCView view = new RTCView(RTCEngine.this.mContext, RTCEngine.this.rootEglBase.getEglBaseContext());
-                view.setStream(mediaStream);
-
-                stream.mView = view;
-
-                mEngineListener.onAddRemoteStream(stream);
-            });
-
-        }
-
-        @Override
-        public void onRemoveStream(MediaStream mediaStream) {
-
-            Log.d(TAG, "onRemoveStream: " + mediaStream.getId());
-
-            String streamId = mediaStream.getId();
-
-            RTCStream stream = remoteStreams.get(streamId);
-
-            remoteStreams.remove(streamId);
-
-            mHandler.post(() -> {
-
-                mEngineListener.onRemoveRemoteStream(stream);
-            });
-        }
-
-        @Override
-        public void onDataChannel(DataChannel dataChannel) {
-
-        }
-
-        @Override
-        public void onRenegotiationNeeded() {
-
-        }
-
-        @Override
-        public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
-
-            Log.d(TAG, "onAddTrack" + rtpReceiver.id());
-        }
-    };
-
-
-    private String stringForIceState(PeerConnection.IceConnectionState newState){
-
-        String statestr;
-        switch (newState){
-            case NEW:
-                statestr = "NEW";
-                break;
-            case CHECKING:
-                statestr = "checking";
-                break;
-            case COMPLETED:
-                statestr = "completed";
-                break;
-            case CONNECTED:
-                statestr = "connected";
-                break;
-            case CLOSED:
-                statestr = "closed";
-                break;
-            case FAILED:
-                statestr = "failed";
-                break;
-            case DISCONNECTED:
-                statestr = "disconnected";
-                break;
-            default:
-                statestr = "";
-                break;
-        }
-
-        return statestr;
-    }
 
 }

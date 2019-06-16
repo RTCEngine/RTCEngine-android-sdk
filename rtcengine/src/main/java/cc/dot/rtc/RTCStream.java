@@ -4,6 +4,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.projection.MediaProjection;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.json.JSONException;
@@ -20,6 +24,7 @@ import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
+import org.webrtc.NV21Buffer;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RendererCommon;
@@ -33,9 +38,12 @@ import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.VideoFrame;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
+import org.webrtc.audio.AudioDeviceModule;
 
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
+import cc.dot.rtc.capturer.RTCVideoFrame;
 import cc.dot.rtc.filter.FilterManager;
 
 import static android.util.Log.d;
@@ -54,17 +62,13 @@ public class RTCStream implements PeerConnection.Observer {
     }
 
 
-
     public static class Builder {
 
         private Context context;
         private boolean local;
         private boolean audio;
         private boolean video;
-        private Intent screenCaptureIntent;
         private String mediaStreamId;
-        private RTCExternalCapturer externalCapturer;
-        private VideoCapturer videoCapturer;
         private JSONObject attributes;
         private RTCEngine engine;
 
@@ -85,12 +89,6 @@ public class RTCStream implements PeerConnection.Observer {
             return this;
         }
 
-
-        public Builder setCapturer(RTCExternalCapturer capturer) {
-            this.externalCapturer = capturer;
-            this.videoCapturer = capturer.internalCapturer;
-            return this;
-        }
 
         public Builder setVideoProfile(RTCVideoProfile profile) {
             this.videoProfile = profile;
@@ -127,11 +125,8 @@ public class RTCStream implements PeerConnection.Observer {
 
     private Context context;
 
-    private Intent screenCaptureIntent;
     private RTCVideoProfile videoProfile;
-    private String mediaStreamId;
-    protected MediaStream mediaStream;
-    private String peerId;
+
 
     private RTCEngine engine;
 
@@ -143,21 +138,23 @@ public class RTCStream implements PeerConnection.Observer {
 
     private SurfaceTextureHelper textureHelper;
     private VideoCapturer mVideoCapturer;
-    private RTCExternalCapturer mExternalCapturer;
 
-
+    private boolean usingFrontCamera = true;
+    private boolean usingExternalVideo = false;
 
     private boolean closed;
     private FilterManager filterManager;
     private CapturerObserver capturerObserver;
 
+    private PeerConnectionFactory factory;
+    private AudioDeviceModule audioDeviceModule;
 
+    protected String mediaStreamId;
     protected boolean local;
     protected boolean audio;
     protected boolean video;
 
     protected String publisherId;
-
 
     protected RtpSender videoSender;
     protected RtpSender audioSender;
@@ -165,10 +162,21 @@ public class RTCStream implements PeerConnection.Observer {
     protected RtpTransceiver mVideoTransceiver;
     protected RtpTransceiver mAudioTransceiver;
 
+    protected PeerConnection peerConnection;
+
 
     protected RTCView mView;
     protected RTCStreamListener mListener;
     protected JSONObject attributes = new JSONObject();
+
+
+    private Handler mHandler = new Handler(Looper.getMainLooper()) {
+
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+        }
+    };
 
 
     RTCStream(Builder builder) {
@@ -179,14 +187,14 @@ public class RTCStream implements PeerConnection.Observer {
         this.video = builder.video;
         this.videoProfile = builder.videoProfile;
         this.attributes = builder.attributes;
-        this.screenCaptureIntent = builder.screenCaptureIntent;
         this.mediaStreamId = builder.mediaStreamId;
 
 
-        this.mVideoCapturer = builder.videoCapturer;
-        this.mExternalCapturer = builder.externalCapturer;
-
         this.engine = builder.engine;
+
+        this.factory = engine.factory;
+
+        this.audioDeviceModule = engine.audioDeviceModule;
 
         EglBase.Context eglContext = engine.rootEglBase.getEglBaseContext();
 
@@ -199,18 +207,6 @@ public class RTCStream implements PeerConnection.Observer {
 
 
     // for internal use
-    protected RTCStream(Context context,String peerId, String streamId, boolean audio, boolean video, MediaStream mediaStream, RTCEngine engine) {
-
-        this.context = context;
-        this.mediaStream = mediaStream;
-        this.peerId = peerId;
-        this.mediaStreamId = streamId;
-        this.local = false;
-        this.engine = engine;
-        this.audio = audio;
-        this.video = video;
-    }
-
     protected RTCStream(Context context, RTCEngine engine) {
 
         this.context = context;
@@ -221,53 +217,27 @@ public class RTCStream implements PeerConnection.Observer {
     public boolean isLocal() { return  this.local; }
 
 
-    public boolean isHasAduio() {
+    public boolean hasAduio() {
         return this.audio;
     }
 
 
-    public void  enableFaceBeauty(boolean enable){
-
-        if (filterManager != null){
-            filterManager.setUseFilter(enable);
-        }
-    }
-
-
-    public void  setBeautyLevel(float level){
-        if (level > 1.0f || level < 0.0f){
-            return;
-        }
-        if (filterManager != null){
-            filterManager.setBeautyLevel(level);
-        }
-    }
-
-
-    public void setBrightLevel(float level){
-        if (level > 1.0f || level < 0.0f){
-            return;
-        }
-        if (filterManager != null){
-            filterManager.setBrightLevel(level);
-        }
-    }
+    public boolean hasVideo() { return  this.video; }
 
 
     public String getStreamId() {
         return this.mediaStreamId;
     }
 
-    public String getPeerId() {
-        return peerId;
-    }
 
     public RTCView getView() {
         return mView;
     }
 
+
     public boolean switchCamara() {
-        // todo
+
+
         if (mVideoCapturer instanceof CameraVideoCapturer) {
             ((CameraVideoCapturer)mVideoCapturer).switchCamera(new CameraVideoCapturer.CameraSwitchHandler(){
 
@@ -300,10 +270,6 @@ public class RTCStream implements PeerConnection.Observer {
             JSONObject data = new JSONObject();
             try {
                 data.put("audio", true);
-                data.put("id", peerId);
-                data.put("msid", mediaStreamId);
-                data.put("local", local);
-                data.put("muting", muting);
             } catch (JSONException e) {
                 e.printStackTrace();
             }
@@ -326,10 +292,6 @@ public class RTCStream implements PeerConnection.Observer {
             JSONObject data = new JSONObject();
             try {
                 data.put("video", true);
-                data.put("id", peerId);
-                data.put("msid", mediaStreamId);
-                data.put("local", local);
-                data.put("muting", muting);
             } catch (JSONException e) {
                 e.printStackTrace();
             }
@@ -357,57 +319,73 @@ public class RTCStream implements PeerConnection.Observer {
             throw new RuntimeException("have to be local to setup local media");
         }
 
-        if (mediaStream != null) {
-            return;
-        }
 
-        PeerConnectionFactory factory = this.engine.factory;
+        if (video) {
 
-        mediaStream = factory.createLocalMediaStream(mediaStreamId);
-
-        // video enabled
-        if (video || screenCaptureIntent != null || mVideoCapturer != null) {
-
-            VideoCapturer videoCapturer = createLocalVideoCapturer();
-            boolean isScreencast = (screenCaptureIntent != null);
-            VideoSource videoSource = factory.createVideoSource(isScreencast);
-
-            capturerObserver = videoSource.getCapturerObserver();
+            mVideoSource = factory.createVideoSource(false);
+            mVideoTrack = factory.createVideoTrack(UUID.randomUUID().toString(), mVideoSource);
 
             int width = this.videoProfile.getWidth();
             int height = this.videoProfile.getHeight();
             int fps = this.videoProfile.getFps();
 
-            VideoTrack videoTrack = factory.createVideoTrack(UUID.randomUUID().toString(), videoSource);
+            if (!usingExternalVideo) {
+                mVideoCapturer = createLocalVideoCapturer();
 
-            mediaStream.addTrack(videoTrack);
+                mVideoCapturer.initialize(textureHelper,context,this.capturerConsumer);
+                mVideoCapturer.startCapture(width, height, fps);
 
-            mVideoTrack = videoTrack;
-            mVideoSource = videoSource;
-            mVideoCapturer = videoCapturer;
+                //mVideoSource.adaptOutputFormat(width, height, fps);
+            }
 
-
-            videoCapturer.initialize(textureHelper,context,this.capturerConsumer);
-            videoCapturer.startCapture(width, height, fps);
-
-            //mVideoSource.adaptOutputFormat(width, height, fps);
+            mView.setVideoTrack(mVideoTrack);
         }
-
 
         if (audio) {
-            AudioSource audioSource = factory.createAudioSource(new MediaConstraints());
-            AudioTrack audioTrack = factory.createAudioTrack(UUID.randomUUID().toString(), audioSource);
+            mAudioSource = factory.createAudioSource(new MediaConstraints());
+            mAudioTrack = factory.createAudioTrack(UUID.randomUUID().toString(), mAudioSource);
+        }
+    }
 
-            mediaStream.addTrack(audioTrack);
 
-            mAudioSource = audioSource;
-            mAudioTrack = audioTrack;
+    public void shutdownLocalMedia() {
+
+        if (video) {
+            if (!usingExternalVideo) {
+                try {
+                    mVideoCapturer.stopCapture();
+                } catch (InterruptedException e) {
+
+                }
+
+            }
+        }
+    }
+
+
+    public void useExternalVideoSource(boolean external) {
+        usingExternalVideo = external;
+    }
+
+
+
+    public void sendVideoFrame(final RTCVideoFrame frame, final int rotation) {
+
+        final long captureTimeNs =
+                TimeUnit.MILLISECONDS.toNanos(SystemClock.elapsedRealtime());
+
+        VideoFrame.Buffer buffer;
+        if (frame.type == RTCVideoFrame.VideoFrameType.NV21_TYPE) {
+            buffer = new NV21Buffer(frame.bytesArray,frame.width,frame.height,null);
+        } else {
+            // todo other
+            return;
         }
 
 
-        if (mView != null) {
-            mView.setStream(mediaStream);
-        }
+        VideoFrame videoFrame = new VideoFrame(buffer, rotation /* rotation */, captureTimeNs);
+
+        capturerConsumer.onFrameCaptured(videoFrame);
     }
 
 
@@ -432,25 +410,10 @@ public class RTCStream implements PeerConnection.Observer {
         }
     }
 
-    protected void setPeerId(String peerId) {
-        this.peerId = peerId;
-    }
-
 
     protected JSONObject dumps() {
 
         JSONObject object = new JSONObject();
-
-        try {
-            object.put("id", peerId);
-            object.put("msid", mediaStreamId);
-            object.put("local", local);
-            object.put("bitrate", videoProfile.getBits());
-            object.put("attributes", attributes);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-
 
         return object;
     }
@@ -488,28 +451,9 @@ public class RTCStream implements PeerConnection.Observer {
                 mAudioSource = null;
             }
 
-            if (mediaStream != null) {
-                mediaStream.dispose();
-                mediaStream = null;
-            }
-
         }
-
     }
 
-
-    public MediaStream getMediaStream() {
-        return mediaStream;
-    }
-
-    protected void setMediaStream(MediaStream mediaStream) {
-        this.mediaStream = mediaStream;
-    }
-
-
-    protected void setVideoCapturer(VideoCapturer videoCapturer) {
-        mVideoCapturer = videoCapturer;
-    }
 
     protected void setView(RTCView view) {
         mView = view;
@@ -517,21 +461,6 @@ public class RTCStream implements PeerConnection.Observer {
 
 
     private VideoCapturer createLocalVideoCapturer() {
-
-        if (mVideoCapturer != null) {
-            return mVideoCapturer;
-        } else if (screenCaptureIntent != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                return new ScreenCapturerAndroid(screenCaptureIntent, new MediaProjection.Callback() {
-                    @Override
-                    public void onStop() {
-                        d(TAG, "MediaProjection cameras.");
-                    }
-                });
-            } else {
-                throw new RuntimeException("Only android 5.0+ support this");
-            }
-        }
 
         CameraEnumerator enumerator = Camera2Enumerator.isSupported(this.context)
                 ? new Camera2Enumerator(context)
@@ -579,11 +508,6 @@ public class RTCStream implements PeerConnection.Observer {
         @Override
         public void onFrameCaptured(final VideoFrame videoFrame) {
 
-            if (mExternalCapturer != null) {
-                // external capturer, do not use filter
-                capturerObserver.onFrameCaptured(videoFrame);
-                return;
-            }
 
             final boolean isTextureFrame = videoFrame.getBuffer() instanceof VideoFrame.TextureBuffer;
 
@@ -591,23 +515,6 @@ public class RTCStream implements PeerConnection.Observer {
                 capturerObserver.onFrameCaptured(videoFrame);
                 return;
             }
-
-
-            // filter only for texture frame
-//            if (filterManager.isUseFilter()) {
-//                VideoFrame.TextureBuffer buffer = (VideoFrame.TextureBuffer) videoFrame.getBuffer();
-//
-//                float[] texMatrix = RendererCommon.convertMatrixFromAndroidGraphicsMatrix(buffer.getTransformMatrix());
-//
-//                int rgbTexture = filterManager.drawFrame(buffer.getTextureId(),texMatrix,buffer.getWidth(),buffer.getHeight());
-//
-//                VideoFrame.TextureBuffer rgbBuffer = new TextureBufferImpl(buffer.getWidth(),buffer.getHeight(),
-//                        VideoFrame.TextureBuffer.Type.RGB, rgbTexture, buffer.getTransformMatrix(),
-//                        null, null, null);
-//
-//
-//            }
-            
 
             // here we process videoframe
             Log.d(TAG, "onFrameCaptured");
@@ -659,6 +566,33 @@ public class RTCStream implements PeerConnection.Observer {
     };
 
 
+    private String stringForConnectionState(PeerConnection.PeerConnectionState newState){
+
+        String statestr;
+        switch (newState){
+            case NEW:
+                statestr = "NEW";
+                break;
+            case CONNECTING:
+                statestr = "connecting";
+                break;
+            case CONNECTED:
+                statestr = "connected";
+                break;
+            case CLOSED:
+                statestr = "closed";
+                break;
+            case DISCONNECTED:
+                statestr = "disconnected";
+                break;
+            default:
+                statestr = "";
+                break;
+        }
+
+        return statestr;
+    }
+
 
     @Override
     public void onSignalingChange(PeerConnection.SignalingState signalingState) {
@@ -673,6 +607,8 @@ public class RTCStream implements PeerConnection.Observer {
     @Override
     public void onConnectionChange(PeerConnection.PeerConnectionState newState) {
 
+        String state = stringForConnectionState(newState);
+        Log.d(TAG, "PeerConnectionState:" + state);
     }
 
     @Override
@@ -688,6 +624,7 @@ public class RTCStream implements PeerConnection.Observer {
     @Override
     public void onIceCandidate(IceCandidate iceCandidate) {
 
+        Log.d(TAG, "IceCandidate:" + iceCandidate.sdp);
     }
 
     @Override
@@ -718,11 +655,24 @@ public class RTCStream implements PeerConnection.Observer {
     @Override
     public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
 
+        if (rtpReceiver.track().kind().equalsIgnoreCase("video")) {
+
+
+            mHandler.post(() -> {
+                mView.setVideoTrack((VideoTrack)rtpReceiver.track());
+            });
+        }
+
+
+        if (rtpReceiver.track().kind().equalsIgnoreCase("audio")) {
+            Log.d(TAG, "RtpReceiver " + rtpReceiver.id());
+        }
     }
 
     @Override
     public void onTrack(RtpTransceiver transceiver) {
 
+        Log.d(TAG, "onTrack: " + transceiver.getMid() + transceiver.toString());
     }
 }
 
